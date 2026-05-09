@@ -1,0 +1,30 @@
+{
+  "name": "lespeakers-automation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Automation scripts independent from the website / DB (scraping, enrichment, leads, etc.)",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18.20.3",
+    "yarn": "*"
+  },
+  "scripts": {
+    "scrape:event-agencies:step0": "tsx scripts/scrape_event_agencies_step0.ts",
+    "scrape:event-agencies:step0:prod": "tsx scripts/scrape_event_agencies_step0.ts --prod",
+    "scrape:event-agencies:step1": "tsx scripts/scrape_event_agencies_website_socials_and_contact_step1.ts",
+    "scrape:event-agencies:step2": "tsx scripts/scrape_event_agencies_linkedin_from_apify_step2.ts",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "apify-client": "^2.12.6",
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0",
+    "csv-writer": "^1.6.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
