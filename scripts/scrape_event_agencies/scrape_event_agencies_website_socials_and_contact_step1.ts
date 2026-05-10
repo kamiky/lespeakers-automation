@@ -32,16 +32,16 @@ import 'dotenv/config';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import citiesJson from '../src/constants/cities.json' with { type: 'json' };
-import variantsJson from '../src/constants/event_agencies_variants.json' with { type: 'json' };
-import { type Agency, effectiveProcessedStep } from '../src/types/agency.js';
+import citiesJson from '../../src/constants/cities.json' with { type: 'json' };
+import variantsJson from '../../src/constants/event_agencies_variants.json' with { type: 'json' };
+import { type Agency, effectiveProcessedStep } from '../../src/types/agency.js';
 import {
   getBoolArg,
   getIntArg,
   getStringArg,
   parseCliArgs,
-} from '../src/utils/cli.js';
-import { withConcurrency } from '../src/utils/concurrency.js';
+} from '../../src/utils/cli.js';
+import { withConcurrency } from '../../src/utils/concurrency.js';
 import {
   OUTPUT_DIR,
   findLatestJsonOutput,
@@ -50,8 +50,8 @@ import {
   loadLatestStep0PartitionMerged,
   mergeAgenciesByPlaceIdPreferOverlay,
   writeCanonicalEventAgenciesOutputs,
-} from '../src/utils/output.js';
-import { scrapeWebsiteForSocialsAndContact } from '../src/utils/website_scraper.js';
+} from '../../src/utils/output.js';
+import { scrapeWebsiteForSocialsAndContact } from '../../src/utils/website_scraper.js';
 
 const STEP0_OUTPUT_PREFIX = 'scrape_event_agencies';
 const OUTPUT_PREFIX = 'scrape_event_agencies_with_website_data';
@@ -164,7 +164,7 @@ async function main(): Promise<void> {
       });
       if (!fallback) {
         throw new Error(
-          `No input found. Pass --input=<path> or run scrape_event_agencies_step0.ts first.`,
+          `No input found. Pass --input=<path> or run scripts/scrape_event_agencies/scrape_event_agencies_step0.ts (yarn scrape:event-agencies:step0) first.`,
         );
       }
       inputPath = fallback;

@@ -70,4 +70,4 @@ Colonne **`employees_json`** : JSON compact des `employees` (vide si aucune lign
 
 ## Step suivante
 
-[STEP 4](./action_plan.md) (à venir) : enrichir `contact_email` via Dropcontact ou équivalent.
+[STEP 4](../action_plan.md) (à venir) : enrichir `contact_email` via Dropcontact ou équivalent.

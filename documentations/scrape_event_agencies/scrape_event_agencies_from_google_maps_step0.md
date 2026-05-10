@@ -14,13 +14,13 @@ yarn scrape:event-agencies:step0 --country=fr --refresh-all
 Récupère la liste brute des agences depuis Google Maps via Apify (actor
 `compass/google-maps-extractor`).
 
-> Source du plan global : [`action_plan.md`](./action_plan.md)
+> Source du plan global : [`action_plan.md`](../action_plan.md)
 
 ---
 
 ## Pipeline complet
 
-| Step | Script (`scripts/...`)                                                | Doc                                                                                                  | Tech                | Coût      | Statut       |
+| Step | Script (`scripts/scrape_event_agencies/`)                            | Doc                                                                                                  | Tech                | Coût      | Statut       |
 |------|-----------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|---------------------|-----------|--------------|
 | 0    | `scrape_event_agencies_step0.ts`                                      | _ce fichier_                                                                                         | Apify Google Maps   | $$        | ✅ implémenté|
 | 1    | `scrape_event_agencies_website_socials_and_contact_step1.ts`          | [doc](./scrape_event_agencies_website_socials_and_contact_step1.md)                                   | axios + cheerio     | gratuit   | ✅ implémenté|
@@ -115,7 +115,7 @@ yarn scrape:event-agencies:step0 --country=fr --prod --refresh-all
 yarn scrape:event-agencies:step0 --country=fr --max=25 --output=output/my_batch
 
 # direct (sans alias yarn)
-npx tsx scripts/scrape_event_agencies_step0.ts --country=fr --prod
+npx tsx scripts/scrape_event_agencies/scrape_event_agencies_step0.ts --country=fr --prod
 ```
 
 ## Format de sortie

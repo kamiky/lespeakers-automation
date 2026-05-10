@@ -9,11 +9,11 @@
     "yarn": "*"
   },
   "scripts": {
-    "scrape:event-agencies:step0": "tsx scripts/scrape_event_agencies_step0.ts",
-    "scrape:event-agencies:step0:prod": "tsx scripts/scrape_event_agencies_step0.ts --prod",
-    "scrape:event-agencies:step1": "tsx scripts/scrape_event_agencies_website_socials_and_contact_step1.ts",
-    "scrape:event-agencies:step2": "tsx scripts/scrape_event_agencies_linkedin_from_apify_step2.ts",
-    "scrape:event-agencies:step3": "tsx scripts/scrape_event_agencies_employees_apify_step3.ts",
+    "scrape:event-agencies:step0": "tsx scripts/scrape_event_agencies/scrape_event_agencies_step0.ts",
+    "scrape:event-agencies:step0:prod": "tsx scripts/scrape_event_agencies/scrape_event_agencies_step0.ts --prod",
+    "scrape:event-agencies:step1": "tsx scripts/scrape_event_agencies/scrape_event_agencies_website_socials_and_contact_step1.ts",
+    "scrape:event-agencies:step2": "tsx scripts/scrape_event_agencies/scrape_event_agencies_linkedin_from_apify_step2.ts",
+    "scrape:event-agencies:step3": "tsx scripts/scrape_event_agencies/scrape_event_agencies_employees_apify_step3.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

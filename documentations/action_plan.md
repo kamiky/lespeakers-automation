@@ -11,7 +11,7 @@ yarn scrape:event-agencies:step1
 yarn scrape:event-agencies:step2
 ```
 
-Docs détaillées : [`documentations/README.md`](./README.md), [`scrape_event_agencies_from_google_maps_step0.md`](./scrape_event_agencies_from_google_maps_step0.md), etc.
+Docs détaillées : [`documentations/scrape_event_agencies/README.md`](./scrape_event_agencies/README.md), [`scrape_event_agencies_from_google_maps_step0.md`](./scrape_event_agencies/scrape_event_agencies_from_google_maps_step0.md), etc.
 
 ---
 

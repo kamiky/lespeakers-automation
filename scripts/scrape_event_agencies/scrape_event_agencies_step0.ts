@@ -39,15 +39,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ApifyClient } from 'apify-client';
 
-import citiesJson from '../src/constants/cities.json' with { type: 'json' };
-import variantsJson from '../src/constants/event_agencies_variants.json' with { type: 'json' };
-import { type Agency, effectiveProcessedStep } from '../src/types/agency.js';
+import citiesJson from '../../src/constants/cities.json' with { type: 'json' };
+import variantsJson from '../../src/constants/event_agencies_variants.json' with { type: 'json' };
+import { type Agency, effectiveProcessedStep } from '../../src/types/agency.js';
 import {
   getBoolArg,
   getIntArg,
   getStringArg,
   parseCliArgs,
-} from '../src/utils/cli.js';
+} from '../../src/utils/cli.js';
 import {
   OUTPUT_DIR,
   collectStep0JsonPathsForCountryMerge,
@@ -56,7 +56,7 @@ import {
   loadAgenciesFromJson,
   slugifyCityForFilename,
   writeCanonicalEventAgenciesOutputs,
-} from '../src/utils/output.js';
+} from '../../src/utils/output.js';
 
 const APIFY_ACTOR_ID = 'compass/google-maps-extractor';
 const STEP1_OUTPUT_PREFIX = 'scrape_event_agencies_with_website_data';

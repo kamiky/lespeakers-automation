@@ -24,7 +24,7 @@ Deux pistes complémentaires (non implémentées pour l’instant) :
 
 ## Option B — Gate par domaine email (Dropcontact)
 
-**Idée** : enrichir `contact_email` via Dropcontact ([STEP 4](./action_plan.md) prévue), puis **écarter** un employé si l’email trouvé n’est pas aligné avec le **domaine du site** de l’agence.
+**Idée** : enrichir `contact_email` via Dropcontact ([STEP 4](../action_plan.md) prévue), puis **écarter** un employé si l’email trouvé n’est pas aligné avec le **domaine du site** de l’agence.
 
 **Règle typique** :
 - Extraire le domaine « registrable » de `website` (ex. `agence.fr`).
@@ -49,4 +49,4 @@ Deux pistes complémentaires (non implémentées pour l’instant) :
 ## Références
 
 - Pipeline employees : [STEP 3](./scrape_event_agencies_employees_apify_step3.md)  
-- Vue d’ensemble : [action_plan.md](./action_plan.md)
+- Vue d’ensemble : [action_plan.md](../action_plan.md)
