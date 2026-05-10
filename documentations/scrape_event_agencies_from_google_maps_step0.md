@@ -25,7 +25,7 @@ Récupère la liste brute des agences depuis Google Maps via Apify (actor
 | 0    | `scrape_event_agencies_step0.ts`                                      | _ce fichier_                                                                                         | Apify Google Maps   | $$        | ✅ implémenté|
 | 1    | `scrape_event_agencies_website_socials_and_contact_step1.ts`          | [doc](./scrape_event_agencies_website_socials_and_contact_step1.md)                                   | axios + cheerio     | gratuit   | ✅ implémenté|
 | 2    | `scrape_event_agencies_linkedin_from_apify_step2.ts`                  | [doc](./scrape_event_agencies_linkedin_from_apify_step2.md)                                          | Apify Google Search | $         | ✅ implémenté|
-| 3    | _à venir_ — employees discovery                                       | -                                                                                                    | Apify LinkedIn      | $$        | ⏳ à faire   |
+| 3    | `scrape_event_agencies_employees_apify_step3.ts`                      | [doc](./scrape_event_agencies_employees_apify_step3.md)                                              | Apify Google Search | $         | ✅ implémenté|
 | 4    | _à venir_ — email enrichment (Dropcontact)                            | -                                                                                                    | Dropcontact API     | $         | ⏳ à faire   |
 | 5    | _à venir_ — stockage (Supabase)                                       | -                                                                                                    | -                   | -         | ⏳ à faire   |
 

@@ -1,15 +1,16 @@
 /**
- * scrape_event_agencies_linkedin_from_apify_step2.ts
+ * scrape_event_agencies_employees_apify_step3.ts
  *
- * EXAMPLES (run from the `automation/` directory — same cwd as `yarn`):
- *   yarn scrape:event-agencies:step2
- *   yarn scrape:event-agencies:step2 --force --limit=20
- *   yarn scrape:event-agencies:step2 --input=./output/scrape_event_agencies_fr_paris_debug.json
+ * EXAMPLES (from `automation/`):
+ *   yarn scrape:event-agencies:step3
+ *   yarn scrape:event-agencies:step3 --force --limit=5
+ *   yarn scrape:event-agencies:step3 --input=./output/scrape_event_agencies_fr_paris_debug.json
  *
- * STEP 2 — Apify Google search for LinkedIn company URLs.
- * Rewrites **canonical** pipeline files (same as step 1):
- *   scrape_event_agencies_<country>_<citySlug>_<mode>.json
- *   scrape_event_agencies_<country>_<mode>.csv
+ * STEP 3 — Apify Google search for LinkedIn **people** (`/in/`) per agency.
+ * Writes `employees[]` with { linkedin_url, contact_email, name, job, role_bucket };
+ * `contact_email` stays null until Step 4 (Dropcontact).
+ *
+ * Rewrites canonical pipeline JSON + CSV (same as steps 1–2).
  */
 
 import 'dotenv/config';
@@ -27,7 +28,7 @@ import {
   parseCliArgs,
 } from '../src/utils/cli.js';
 import { agencyLabelForSearch } from '../src/utils/company_name.js';
-import { nameMatchScore } from '../src/utils/fuzzy_match.js';
+import { organicResultsToEmployees } from '../src/utils/linkedin_employees_google.js';
 import {
   OUTPUT_DIR,
   findLatestJsonOutput,
@@ -40,10 +41,10 @@ import {
 
 const APIFY_ACTOR_ID = 'apify/google-search-scraper';
 const STEP1_OUTPUT_PREFIX = 'scrape_event_agencies_with_website_data';
-const OUTPUT_PREFIX = 'scrape_event_agencies_with_linkedin_search';
+const STEP2_OUTPUT_PREFIX = 'scrape_event_agencies_with_linkedin_search';
 const STEP3_OUTPUT_PREFIX = 'scrape_event_agencies_with_employees';
-const DEFAULT_THRESHOLD = 0.4;
-const RESULTS_PER_QUERY = 5;
+const RESULTS_PER_QUERY = 10;
+const DEFAULT_MAX_EMPLOYEES = 8;
 
 interface CitiesByCountry {
   [country: string]: string[];
@@ -75,52 +76,10 @@ interface SearchItem {
   organicResults?: OrganicResult[];
 }
 
-function buildQueryFor(agency: Agency, variants: string[]): string {
+function buildEmployeeQueryFor(agency: Agency, variants: string[]): string {
   const quoted = agencyLabelForSearch(agency, variants).replace(/"/g, '');
   const safeCity = agency.city || '';
-  return `site:linkedin.com/company "${quoted}" ${safeCity}`.trim();
-}
-
-function normalizeLinkedinCompanyUrl(rawUrl: string): string | null {
-  try {
-    const u = new URL(rawUrl);
-    if (!u.hostname.endsWith('linkedin.com')) return null;
-    const segments = u.pathname.split('/').filter(Boolean);
-    if (segments.length < 2) return null;
-    const [section, slug] = segments;
-    if (!['company', 'school'].includes(section)) return null;
-    if (!slug) return null;
-    return `https://www.linkedin.com/${section}/${slug}/`;
-  } catch {
-    return null;
-  }
-}
-
-interface BestMatch {
-  url: string;
-  score: number;
-}
-
-function pickBestMatch(
-  agency: Agency,
-  results: OrganicResult[],
-  threshold: number,
-  variants: string[],
-): BestMatch | null {
-  const label = agencyLabelForSearch(agency, variants);
-  let best: BestMatch | null = null;
-  for (const r of results) {
-    if (!r.url || !r.title) continue;
-    const normalizedUrl = normalizeLinkedinCompanyUrl(r.url);
-    if (!normalizedUrl) continue;
-    const score = nameMatchScore(label, r.title);
-    if (!best || score > best.score) {
-      best = { url: normalizedUrl, score };
-    }
-  }
-  if (!best) return null;
-  if (best.score < threshold) return null;
-  return best;
+  return `site:linkedin.com/in "${quoted}" ${safeCity}`.trim();
 }
 
 async function runApifyGoogleSearch(params: {
@@ -146,7 +105,6 @@ async function runApifyGoogleSearch(params: {
   );
 
   const run = await client.actor(APIFY_ACTOR_ID).call(input);
-
   console.log(
     `[apify] Run finished (id=${run.id}, status=${run.status}). Fetching dataset items...`,
   );
@@ -157,22 +115,20 @@ async function runApifyGoogleSearch(params: {
 }
 
 function shouldProcess(agency: Agency, force: boolean): boolean {
-  if (agency.linkedin_company_url) return false;
   if (force) return true;
-  return agency.linkedin_source == null;
+  return effectiveProcessedStep(agency) < 3;
 }
 
 async function main(): Promise<void> {
   const args = parseCliArgs(process.argv);
   const force = getBoolArg(args, 'force');
   const limit = getIntArg(args, 'limit');
+  const maxEmployees = getIntArg(args, 'max-employees') ?? DEFAULT_MAX_EMPLOYEES;
+  if (maxEmployees < 1 || maxEmployees > 50) {
+    throw new Error(`--max-employees must be between 1 and 50 (got ${maxEmployees})`);
+  }
   const inputOverride = getStringArg(args, 'input');
   const outputOverride = getStringArg(args, 'output');
-  const thresholdRaw = getStringArg(args, 'threshold');
-  const threshold = thresholdRaw !== undefined ? Number(thresholdRaw) : DEFAULT_THRESHOLD;
-  if (Number.isNaN(threshold) || threshold < 0 || threshold > 1) {
-    throw new Error(`Invalid --threshold value: "${thresholdRaw}" (must be in [0,1])`);
-  }
 
   const apifyToken = process.env.APIFY_TOKEN;
   if (!apifyToken) {
@@ -202,29 +158,21 @@ async function main(): Promise<void> {
       merged.sourcePaths.forEach((p) => console.log(`       ${p}`));
       if (merged.country) {
         const legacy = findLatestJsonOutput(
-          [STEP1_OUTPUT_PREFIX, OUTPUT_PREFIX, STEP3_OUTPUT_PREFIX],
-          {
-            country: merged.country,
-            outputDir,
-          },
+          [STEP1_OUTPUT_PREFIX, STEP2_OUTPUT_PREFIX, STEP3_OUTPUT_PREFIX],
+          { country: merged.country, outputDir },
         );
         if (legacy) {
-          allAgencies = mergeAgenciesByPlaceIdPreferOverlay(
-            allAgencies,
-            loadAgenciesFromJson(legacy),
-          );
+          allAgencies = mergeAgenciesByPlaceIdPreferOverlay(allAgencies, loadAgenciesFromJson(legacy));
           console.log(`[input] Overlay legacy file ${legacy}`);
         }
       }
     } else {
       const fallback = findLatestJsonOutput(
-        [STEP1_OUTPUT_PREFIX, OUTPUT_PREFIX, STEP3_OUTPUT_PREFIX],
+        [STEP1_OUTPUT_PREFIX, STEP2_OUTPUT_PREFIX, STEP3_OUTPUT_PREFIX],
         { outputDir },
       );
       if (!fallback) {
-        throw new Error(
-          `No input found. Pass --input=<path> or run step 0 / step 1 first.`,
-        );
+        throw new Error(`No input found. Pass --input=<path> or run step 0–2 first.`);
       }
       inputPath = fallback;
       allAgencies = loadAgenciesFromJson(fallback);
@@ -232,13 +180,13 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log(`[input] Loaded ${allAgencies.length} total agencies.`);
+  console.log(`[input] Loaded ${allAgencies.length} agencies.`);
 
   let pending = allAgencies.filter((a) => shouldProcess(a, force));
   const skipped = allAgencies.length - pending.length;
   if (skipped > 0) {
     console.log(
-      `[skip] ${skipped} agency(ies) already resolved or already attempted (use --force to retry "not_found").`,
+      `[skip] ${skipped} agency(ies) already at step ≥3 (use --force to re-run Apify employee search).`,
     );
   }
 
@@ -261,7 +209,7 @@ async function main(): Promise<void> {
       inferred.country ?? (allAgencies[0]?.country_code ?? 'fr').toLowerCase().slice(0, 2);
 
     const { variants: allVariants } = loadCitiesAndVariants(country);
-    const queries = pending.map((a) => buildQueryFor(a, allVariants));
+    const queries = pending.map((a) => buildEmployeeQueryFor(a, allVariants));
 
     const client = new ApifyClient({ token: apifyToken });
     const searchItems = await runApifyGoogleSearch({
@@ -277,69 +225,44 @@ async function main(): Promise<void> {
       resultsByQuery.set(term, item.organicResults ?? []);
     }
 
-    const updatesByPlaceId = new Map<
-      string,
-      { url: string | null; score: number | null }
-    >();
+    const updatesByPlaceId = new Map<string, Agency['employees']>();
 
     pending.forEach((agency, i) => {
       const query = queries[i];
       const results = resultsByQuery.get(query) ?? [];
-      const best = pickBestMatch(agency, results, threshold, allVariants);
+      const employees = organicResultsToEmployees(results, maxEmployees);
       const idx = `${i + 1}/${pending.length}`;
-      if (best) {
-        console.log(
-          `[${idx}] ✓ ${agency.name} -> ${best.url} (score=${best.score.toFixed(2)})`,
-        );
-        updatesByPlaceId.set(agency.place_id, { url: best.url, score: best.score });
-      } else {
-        console.log(
-          `[${idx}] · ${agency.name} -> no match (${results.length} candidate(s))`,
-        );
-        updatesByPlaceId.set(agency.place_id, { url: null, score: null });
-      }
+      console.log(
+        `[${idx}] ${agency.name} -> ${employees.length} employee(s) (${results.length} organic row(s))`,
+      );
+      updatesByPlaceId.set(agency.place_id, employees);
     });
 
     enriched = allAgencies.map((agency) => {
-      const update = updatesByPlaceId.get(agency.place_id);
-      if (!update) {
+      const em = updatesByPlaceId.get(agency.place_id);
+      if (em === undefined) {
         return {
           ...agency,
           processed_step: effectiveProcessedStep(agency),
         };
       }
-      if (update.url) {
-        return {
-          ...agency,
-          processed_step: Math.max(2, effectiveProcessedStep(agency)),
-          linkedin_company_url: update.url,
-          linkedin_source: 'apify_google_search',
-          linkedin_match_score: update.score,
-        };
-      }
       return {
         ...agency,
-        processed_step: Math.max(2, effectiveProcessedStep(agency)),
-        linkedin_source: 'not_found',
-        linkedin_match_score: null,
+        processed_step: 3,
+        employees: em,
       };
     });
   }
 
   const total = enriched.length;
-  const withLinkedin = enriched.filter((a) => a.linkedin_company_url).length;
-  const fromWebsite = enriched.filter((a) => a.linkedin_source === 'website').length;
-  const fromApify = enriched.filter((a) => a.linkedin_source === 'apify_google_search').length;
-  const notFound = enriched.filter((a) => a.linkedin_source === 'not_found').length;
-  console.log(`[stats] LinkedIn total: ${withLinkedin}/${total} (${pct(withLinkedin, total)})`);
-  console.log(`[stats]   from website : ${fromWebsite}`);
-  console.log(`[stats]   from apify   : ${fromApify}`);
-  console.log(`[stats]   not_found    : ${notFound}`);
+  const withAny = enriched.filter((a) => (a.employees?.length ?? 0) > 0).length;
+  const headcount = enriched.reduce((s, a) => s + (a.employees?.length ?? 0), 0);
+  console.log(`[stats] Agencies with ≥1 employee: ${withAny}/${total}`);
+  console.log(`[stats] Total employee rows: ${headcount}`);
 
   const inferred = inferCountryAndModeFromFilename(inputPath);
   const country =
-    inferred.country ??
-    (enriched[0]?.country_code ?? 'fr').toLowerCase().slice(0, 2);
+    inferred.country ?? (enriched[0]?.country_code ?? 'fr').toLowerCase().slice(0, 2);
   const mode = inferred.mode ?? 'debug';
 
   const { cities: allCities, variants: allVariants } = loadCitiesAndVariants(country);
@@ -355,11 +278,6 @@ async function main(): Promise<void> {
   console.log(`[csv]  ${globalCsvPath} (${enriched.length} row(s))`);
   cityPaths.forEach((p) => console.log(`[json] ${p}`));
   console.log('[done]');
-}
-
-function pct(n: number, total: number): string {
-  if (total === 0) return '0%';
-  return `${Math.round((n / total) * 100)}%`;
 }
 
 main().catch((err) => {

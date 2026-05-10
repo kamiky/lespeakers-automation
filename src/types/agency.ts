@@ -20,10 +20,27 @@ export type WebsiteScrapeStatus =
   | 'parse_error'
   | 'no_data_found';
 
+/** Step 3 — LinkedIn people from Google; `contact_email` filled in Step 4. */
+export type EmployeeRoleBucket =
+  | 'founder'
+  | 'leadership'
+  | 'commercial'
+  | 'partnerships'
+  | 'event'
+  | 'other';
+
+export interface AgencyEmployee {
+  linkedin_url: string;
+  contact_email: string | null;
+  name: string | null;
+  job: string | null;
+  role_bucket: EmployeeRoleBucket;
+}
+
 export interface Agency {
   /**
-   * Highest pipeline step completed for this row: 0 = step0 (Maps) only,
-   * 1 = website scrape (step1) done, 2 = LinkedIn Apify search (step2) done.
+   * Highest pipeline step completed for this row: 0 = Maps, 1 = website, 2 = company LinkedIn,
+   * 3 = employee discovery (Google), 4+ reserved (e.g. Dropcontact).
    * Older JSON may omit this; use `effectiveProcessedStep()` when deciding skips.
    */
   processed_step?: number;
@@ -64,10 +81,19 @@ export interface Agency {
   // (only updates linkedin_company_url + linkedin_source for those still null)
   // ---------------------------------------------------------------------------
   linkedin_match_score?: number | null;
+
+  // ---------------------------------------------------------------------------
+  // From scrape_event_agencies_employees_apify_step3.ts (Apify Google → /in/)
+  // ---------------------------------------------------------------------------
+  /** People rows; `contact_email` null until Step 4 enrichment. */
+  employees?: AgencyEmployee[];
 }
 
 /** Implied step from legacy rows (no or stale `processed_step`). */
 function inferredProcessedStepFromFields(a: Agency): number {
+  if (Array.isArray(a.employees)) {
+    return 3;
+  }
   if (a.linkedin_source === 'apify_google_search' || a.linkedin_source === 'not_found') {
     return 2;
   }

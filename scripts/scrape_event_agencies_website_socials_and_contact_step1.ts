@@ -56,6 +56,7 @@ import { scrapeWebsiteForSocialsAndContact } from '../src/utils/website_scraper.
 const STEP0_OUTPUT_PREFIX = 'scrape_event_agencies';
 const OUTPUT_PREFIX = 'scrape_event_agencies_with_website_data';
 const STEP2_OUTPUT_PREFIX = 'scrape_event_agencies_with_linkedin_search';
+const STEP3_OUTPUT_PREFIX = 'scrape_event_agencies_with_employees';
 const DEFAULT_CONCURRENCY = 5;
 
 function getApifyWhenBlockedFlag(args: ReturnType<typeof parseCliArgs>): boolean {
@@ -84,7 +85,7 @@ function loadCitiesAndVariants(country: string): { cities: string[]; variants: s
 function applyScrapeToAgency(agency: Agency, result: Awaited<ReturnType<typeof scrapeWebsiteForSocialsAndContact>>): Agency {
   return {
     ...agency,
-    processed_step: 1,
+    processed_step: Math.max(1, effectiveProcessedStep(agency)),
     linkedin_company_url: result.linkedinCompanyUrl,
     linkedin_source: result.linkedinCompanyUrl ? 'website' : null,
     contact_emails: result.emails,
@@ -144,7 +145,7 @@ async function main(): Promise<void> {
       merged.sourcePaths.forEach((p) => console.log(`       ${p}`));
       if (merged.country) {
         const enrichPath = findLatestJsonOutput(
-          [OUTPUT_PREFIX, STEP2_OUTPUT_PREFIX],
+          [OUTPUT_PREFIX, STEP2_OUTPUT_PREFIX, STEP3_OUTPUT_PREFIX],
           { country: merged.country, outputDir },
         );
         if (enrichPath) {
@@ -209,7 +210,7 @@ async function main(): Promise<void> {
         console.log(`[${idx}] ${agency.name} -> no website, skipping`);
         return {
           ...agency,
-          processed_step: 1,
+          processed_step: Math.max(1, effectiveProcessedStep(agency)),
           linkedin_company_url: null,
           linkedin_source: null,
           contact_emails: [],
@@ -245,9 +246,7 @@ async function main(): Promise<void> {
       const updated = enrichedById.get(a.place_id) ?? a;
       return {
         ...updated,
-        processed_step: enrichedById.has(a.place_id)
-          ? 1
-          : effectiveProcessedStep(updated),
+        processed_step: effectiveProcessedStep(updated),
       };
     });
   }

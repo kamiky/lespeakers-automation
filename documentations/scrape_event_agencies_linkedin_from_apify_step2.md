@@ -13,6 +13,8 @@ yarn scrape:event-agencies:step2 --input=./output/scrape_event_agencies_fr_paris
 **complète les `linkedin_company_url` manquants** via une recherche Google
 faite par l'actor Apify [`apify/google-search-scraper`](https://apify.com/apify/google-search-scraper).
 
+La [STEP 3](./scrape_event_agencies_employees_apify_step3.md) réutilise le même actor pour les profils personne (`linkedin.com/in/...`).
+
 > Cette étape ne touche **que** les agences pour lesquelles la STEP 1 n'a rien trouvé.
 > Les agences qui ont déjà `linkedin_company_url != null` sont gardées telles quelles.
 
@@ -22,7 +24,7 @@ faite par l'actor Apify [`apify/google-search-scraper`](https://apify.com/apify/
 
 Cette étape est **resumable** :
 
-- L'auto-input prend le **JSON le plus récent** parmi les outputs STEP 1 et STEP 2.
+- L'auto-input prend le **JSON le plus récent** parmi les outputs STEP 1, STEP 2 et STEP 3 (fichiers timestampés legacy).
 - Une agence est **skippée** si :
   - Elle a déjà un `linkedin_company_url` (trouvé en STEP 1 ou STEP 2 précédente).
   - Son `linkedin_source === 'not_found'` (STEP 2 précédente a essayé sans succès).

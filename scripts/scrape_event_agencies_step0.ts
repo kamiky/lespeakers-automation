@@ -61,6 +61,7 @@ import {
 const APIFY_ACTOR_ID = 'compass/google-maps-extractor';
 const STEP1_OUTPUT_PREFIX = 'scrape_event_agencies_with_website_data';
 const STEP2_OUTPUT_PREFIX = 'scrape_event_agencies_with_linkedin_search';
+const STEP3_OUTPUT_PREFIX = 'scrape_event_agencies_with_employees';
 const DEBUG_MAX_RESULTS = 10;
 const PROD_MAX_RESULTS = 50;
 
@@ -277,7 +278,7 @@ async function main(): Promise<void> {
   }
 
   const enrichedPath = findLatestJsonOutput(
-    [STEP1_OUTPUT_PREFIX, STEP2_OUTPUT_PREFIX],
+    [STEP1_OUTPUT_PREFIX, STEP2_OUTPUT_PREFIX, STEP3_OUTPUT_PREFIX],
     { country, outputDir },
   );
   if (enrichedPath) {

@@ -403,6 +403,7 @@ export const EVENT_AGENCIES_PIPELINE_CSV_HEADER: CsvHeaderEntry[] = [
   { id: 'website_scrape_status', title: 'website_scrape_status' },
   { id: 'website_scrape_error', title: 'website_scrape_error' },
   { id: 'website_scraped_url', title: 'website_scraped_url' },
+  { id: 'employees_json', title: 'employees_json' },
 ];
 
 export function agencyToPipelineCsvRow(a: Agency): Record<string, unknown> {
@@ -432,6 +433,8 @@ export function agencyToPipelineCsvRow(a: Agency): Record<string, unknown> {
     website_scrape_status: a.website_scrape_status ?? '',
     website_scrape_error: a.website_scrape_error ?? '',
     website_scraped_url: a.website_scraped_url ?? '',
+    employees_json:
+      a.employees && a.employees.length > 0 ? JSON.stringify(a.employees) : '',
   };
 }
 
