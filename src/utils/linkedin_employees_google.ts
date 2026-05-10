@@ -210,6 +210,8 @@ export function organicResultsToEmployees(
       name,
       job,
       role_bucket,
+      metadata_title: title,
+      metadata_description: description,
     });
   }
 

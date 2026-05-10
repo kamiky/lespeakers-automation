@@ -12,12 +12,13 @@ yarn scrape:event-agencies:step3 --max-employees=5
 **STEP 3** du pipeline. Lit les JSON canoniques (même mécanisme que la
 [STEP 2](./scrape_event_agencies_linkedin_from_apify_step2.md)) et enrichit chaque agence avec :
 
-`employees: Array<{ linkedin_url, contact_email, name, job, role_bucket }>`
+`employees: Array<{ linkedin_url, contact_email, name, job, role_bucket, metadata_title, metadata_description }>`
 
 - **`linkedin_url`** : profil `linkedin.com/in/...` normalisé (`https://www.linkedin.com/in/<slug>/`).
 - **`contact_email`** : toujours `null` ici — **STEP 4** (ex. Dropcontact).
 - **`name`** / **`job`** : dérivés du titre (et parfois de la description) Google.
 - **`role_bucket`** : heuristique sur le texte : `founder` \| `leadership` \| `partnerships` \| `commercial` \| `event` \| `other`. Tri par priorité de rôle puis **`--max-employees`**.
+- **`metadata_title`** / **`metadata_description`** : titre et snippet **bruts** renvoyés par Google pour ce résultat organique (utiles pour un passage LLM ou audit ultérieur).
 
 ## Requête Apify (`apify/google-search-scraper`)
 

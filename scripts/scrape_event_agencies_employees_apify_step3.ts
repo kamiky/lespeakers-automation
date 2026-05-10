@@ -7,7 +7,8 @@
  *   yarn scrape:event-agencies:step3 --input=./output/scrape_event_agencies_fr_paris_debug.json
  *
  * STEP 3 — Apify Google search for LinkedIn **people** (`/in/`) per agency.
- * Writes `employees[]` with { linkedin_url, contact_email, name, job, role_bucket };
+ * Writes `employees[]` with { linkedin_url, contact_email, name, job, role_bucket,
+ * metadata_title, metadata_description };
  * `contact_email` stays null until Step 4 (Dropcontact).
  *
  * Rewrites canonical pipeline JSON + CSV (same as steps 1–2).

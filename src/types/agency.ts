@@ -35,6 +35,10 @@ export interface AgencyEmployee {
   name: string | null;
   job: string | null;
   role_bucket: EmployeeRoleBucket;
+  /** Raw Google organic title for this `/in/` hit (STEP 3). */
+  metadata_title: string;
+  /** Raw Google organic description/snippet for this hit (STEP 3). */
+  metadata_description: string;
 }
 
 export interface Agency {

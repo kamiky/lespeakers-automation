@@ -10,7 +10,7 @@ Deux pistes complémentaires (non implémentées pour l’instant) :
 
 **Idée** : après extraction des lignes `employees`, envoyer pour chaque candidat un court contexte et demander une décision structurée (`keep` / `reject` / `review`).
 
-**Entrées utiles par ligne** : `company_name`, `website`, `linkedin_company_url`, titre + snippet Google utilisés (ou `name` / `job` enrichis), URL profil LinkedIn ; éventuellement `city` / `country_code` de l’agence.
+**Entrées utiles par ligne** : `company_name`, `website`, `linkedin_company_url`, **`metadata_title`** et **`metadata_description`** (STEP 3), `name` / `job` dérivés, URL profil LinkedIn ; éventuellement `city` / `country_code` de l’agence.
 
 **Sortie** : liste filtrée ou champ `employee_match_confidence` / `employee_match_reason` pour tri ultérieur.
 
