@@ -76,10 +76,15 @@ interface SearchItem {
   organicResults?: OrganicResult[];
 }
 
+/** Single broad query; filter keeps rows whose SERP title contains the company label (accent-folded). */
 function buildEmployeeQueryFor(agency: Agency, variants: string[]): string {
-  const quoted = agencyLabelForSearch(agency, variants).replace(/"/g, '');
-  const safeCity = agency.city || '';
-  return `site:linkedin.com/in "${quoted}" ${safeCity}`.trim();
+  const label =
+    agencyLabelForSearch(agency, variants).replace(/"/g, '').trim() ||
+    agency.name.replace(/"/g, '').trim();
+  if (!label) {
+    throw new Error(`Empty company label and name for place_id=${agency.place_id}`);
+  }
+  return `site:linkedin.com/in ${label}`;
 }
 
 async function runApifyGoogleSearch(params: {
@@ -230,7 +235,10 @@ async function main(): Promise<void> {
     pending.forEach((agency, i) => {
       const query = queries[i];
       const results = resultsByQuery.get(query) ?? [];
-      const employees = organicResultsToEmployees(results, maxEmployees);
+      const agencySearchLabel = agencyLabelForSearch(agency, allVariants);
+      const employees = organicResultsToEmployees(results, maxEmployees, {
+        agencySearchLabel,
+      });
       const idx = `${i + 1}/${pending.length}`;
       console.log(
         `[${idx}] ${agency.name} -> ${employees.length} employee(s) (${results.length} organic row(s))`,

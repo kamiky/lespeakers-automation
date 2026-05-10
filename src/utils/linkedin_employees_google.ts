@@ -29,11 +29,86 @@ export function normalizeLinkedinProfileUrl(raw: string): string | null {
   }
 }
 
+/** `/company/foo-bar/` → `foo-bar` */
+export function extractLinkedinCompanySlug(url: string | null | undefined): string | null {
+  if (!url?.trim()) return null;
+  try {
+    const u = new URL(url.trim());
+    if (!u.hostname.toLowerCase().endsWith('linkedin.com')) return null;
+    const seg = u.pathname.split('/').filter(Boolean);
+    const idx = seg.findIndex((s) => s.toLowerCase() === 'company');
+    if (idx < 0 || !seg[idx + 1]) return null;
+    const slug = seg[idx + 1];
+    if (!slug || /[^\w-]/i.test(slug)) return null;
+    return slug.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 export function stripLinkedinTitleBoilerplate(title: string): string {
   return title
     .replace(/\s*\|\s*LinkedIn.*$/i, '')
     .replace(/\s+sur\s+LinkedIn.*$/i, '')
     .trim();
+}
+
+/**
+ * Lowercase, strip combining marks (é è ê → e), unify hyphens / punctuation to spaces.
+ * Used for comparing Google SERP title vs company label.
+ */
+export function normalizeForCompanyMatch(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/-/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * True if accent-normalized `companyLabel` appears in the organic **title** (after stripping `| LinkedIn`)
+ * or in the organic **description** (Google snippet).
+ */
+export function serpOrganicContainsCompanyLabel(
+  title: string,
+  description: string,
+  companyLabel: string,
+): boolean {
+  const lab = normalizeForCompanyMatch(companyLabel);
+  if (lab.length < 2) return false;
+  const t = normalizeForCompanyMatch(stripLinkedinTitleBoilerplate(title));
+  const d = normalizeForCompanyMatch(description);
+  return t.includes(lab) || d.includes(lab);
+}
+
+function isInteractionSpam(title: string, description: string): boolean {
+  const blob = `${title}\n${description}`.toLowerCase();
+  return (
+    /\b(commented on|commentaire sur|a commenté|liked this|a aimé|likes this)\b/i.test(blob) ||
+    /\b(reposted|a republié|shared (?:this )?post|a partagé)\b/i.test(blob) ||
+    /\b(reply to|répond \|)\b/i.test(blob)
+  );
+}
+
+function isStudentOrThinMetaSnippet(description: string): boolean {
+  const d = description.trim();
+  if (!d) return false;
+  const lower = d.toLowerCase();
+  if (/formation\s*:/i.test(d) && /lieu\s*:/i.test(d)) return true;
+  if (/\b\d+\s+relations?\s+sur\s+linkedin\b/i.test(lower)) return true;
+  if (/consultez le profil de\b/i.test(lower)) return true;
+  if (/view .{3,120}'?s? profile on linkedin\b/i.test(lower)) return true;
+  if (
+    d.length > 140 &&
+    /\b(université|university|école|etudiant|étudiant|student)\b/i.test(lower) &&
+    !/\b(chef|directeur|directrice|manager|fondateur|cofondateur|founder|ceo|commercial)\b/i.test(lower)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export function parsePersonNameAndJob(title: string, description?: string): {
@@ -96,9 +171,14 @@ export interface OrganicPersonResult {
   description?: string;
 }
 
+export interface OrganicResultsEmployeeContext {
+  agencySearchLabel: string;
+}
+
 export function organicResultsToEmployees(
   results: OrganicPersonResult[],
   maxEmployees: number,
+  context: OrganicResultsEmployeeContext,
 ): AgencyEmployee[] {
   const bySlug = new Map<string, AgencyEmployee>();
 
@@ -114,8 +194,16 @@ export function organicResultsToEmployees(
     }
     if (!slug || bySlug.has(slug)) continue;
 
-    const { name, job } = parsePersonNameAndJob(r.title, r.description);
-    const role_bucket = classifyEmployeeRoleBucket(r.title, r.description);
+    const title = r.title;
+    const description = r.description ?? '';
+
+    if (!serpOrganicContainsCompanyLabel(title, description, context.agencySearchLabel)) continue;
+    if (isInteractionSpam(title, description)) continue;
+    if (isStudentOrThinMetaSnippet(description)) continue;
+
+    const { name, job } = parsePersonNameAndJob(title, description);
+    const role_bucket = classifyEmployeeRoleBucket(title, description);
+
     bySlug.set(slug, {
       linkedin_url: linkedin,
       contact_email: null,
