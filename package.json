@@ -14,6 +14,7 @@
     "scrape:event-agencies:step1": "tsx scripts/scrape_event_agencies/scrape_event_agencies_website_socials_and_contact_step1.ts",
     "scrape:event-agencies:step2": "tsx scripts/scrape_event_agencies/scrape_event_agencies_linkedin_from_apify_step2.ts",
     "scrape:event-agencies:step3": "tsx scripts/scrape_event_agencies/scrape_event_agencies_employees_apify_step3.ts",
+    "outreach:linkedin": "tsx scripts/open_agencies_linkedin/open_agencies_linkedin.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

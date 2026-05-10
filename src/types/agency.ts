@@ -39,7 +39,21 @@ export interface AgencyEmployee {
   metadata_title: string;
   /** Raw Google organic description/snippet for this hit (STEP 3). */
   metadata_description: string;
+
+  // ---------------------------------------------------------------------------
+  // From scripts/open_agencies_linkedin (manual LinkedIn outreach loop)
+  // ---------------------------------------------------------------------------
+  /** `opened` = URL was opened in browser ; `skipped` = user explicitly skipped. */
+  linkedin_outreach_status?: LinkedinOutreachStatus;
+  /** ISO timestamp of the last outreach interaction recorded for this profile. */
+  linkedin_outreach_at?: string;
+  /** Did the user send a LinkedIn connect request (set after `opened`). */
+  linkedin_connected?: boolean;
+  /** Did the user send a first message to that profile (set after `opened`). */
+  linkedin_first_message?: boolean;
 }
+
+export type LinkedinOutreachStatus = 'opened' | 'skipped';
 
 export interface Agency {
   /**
@@ -91,6 +105,20 @@ export interface Agency {
   // ---------------------------------------------------------------------------
   /** People rows; `contact_email` null until Step 4 enrichment. */
   employees?: AgencyEmployee[];
+
+  // ---------------------------------------------------------------------------
+  // From scripts/open_agencies_linkedin (manual LinkedIn outreach loop)
+  // Tracks the interaction with the COMPANY LinkedIn page (employees track
+  // their own state in `AgencyEmployee`).
+  // ---------------------------------------------------------------------------
+  /** `opened` = URL was opened in browser ; `skipped` = user explicitly skipped. */
+  linkedin_outreach_status?: LinkedinOutreachStatus;
+  /** ISO timestamp of the last outreach interaction recorded for the company page. */
+  linkedin_outreach_at?: string;
+  /** Did the user follow / send a connect request from the company page. */
+  linkedin_connected?: boolean;
+  /** Did the user send a first message from the company page. */
+  linkedin_first_message?: boolean;
 }
 
 /** Implied step from legacy rows (no or stale `processed_step`). */
