@@ -307,12 +307,23 @@ async function main(): Promise<void> {
     console.log(`[stats] Still unprocessed: ${stillUnprocessed} (likely --limit'd; re-run to continue).`);
   }
 
+  const partitionForCsv = loadStep0PartitionMergedForCountry({
+    outputBaseDir,
+    country,
+    mode,
+  });
+  const csvAgencies = mergeAgenciesByPlaceIdPreferOverlay(
+    partitionForCsv.agencies,
+    finalAgencies,
+  );
+  const agenciesForOutputs = csvAgencies.length > 0 ? csvAgencies : finalAgencies;
+
   const { cityPaths, globalCsvPath } = await writeCanonicalEventAgenciesOutputs({
     modeOutputDir,
     country,
     cities: allCities,
     variants: allVariants,
-    allAgencies: finalAgencies,
+    allAgencies: agenciesForOutputs,
     writeCitySlugsOnly: citySlugFilter ? [citySlugFilter] : undefined,
   });
 

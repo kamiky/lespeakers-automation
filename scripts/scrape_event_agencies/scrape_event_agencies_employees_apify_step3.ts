@@ -296,12 +296,23 @@ async function main(): Promise<void> {
   console.log(`[stats] Agencies with ≥1 employee: ${withAny}/${total}`);
   console.log(`[stats] Total employee rows: ${headcount}`);
 
+  const partitionForCsv = loadStep0PartitionMergedForCountry({
+    outputBaseDir,
+    country,
+    mode,
+  });
+  const csvAgencies = mergeAgenciesByPlaceIdPreferOverlay(
+    partitionForCsv.agencies,
+    enriched,
+  );
+  const agenciesForOutputs = csvAgencies.length > 0 ? csvAgencies : enriched;
+
   const { cityPaths, globalCsvPath } = await writeCanonicalEventAgenciesOutputs({
     modeOutputDir,
     country,
     cities: allCities,
     variants: allVariants,
-    allAgencies: enriched,
+    allAgencies: agenciesForOutputs,
     writeCitySlugsOnly: citySlugFilter ? [citySlugFilter] : undefined,
   });
 
