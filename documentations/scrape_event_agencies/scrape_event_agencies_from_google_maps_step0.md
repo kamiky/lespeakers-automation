@@ -6,7 +6,7 @@
 yarn scrape:event-agencies:step0 --country=fr
 yarn scrape:event-agencies:step0 --country=fr --prod
 yarn scrape:event-agencies:step0:prod --country=fr
-yarn scrape:event-agencies:step0 --country=fr --refresh-all
+yarn scrape:event-agencies:step0 --country=fr --force
 ```
 
 **STEP 0** du pipeline d'enrichissement des **agences événementielles** par pays.
@@ -20,14 +20,14 @@ Récupère la liste brute des agences depuis Google Maps via Apify (actor
 
 ## Pipeline complet
 
-| Step | Script (`scripts/scrape_event_agencies/`)                            | Doc                                                                                                  | Tech                | Coût      | Statut       |
-|------|-----------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|---------------------|-----------|--------------|
-| 0    | `scrape_event_agencies_step0.ts`                                      | _ce fichier_                                                                                         | Apify Google Maps   | $$        | ✅ implémenté|
-| 1    | `scrape_event_agencies_website_socials_and_contact_step1.ts`          | [doc](./scrape_event_agencies_website_socials_and_contact_step1.md)                                   | axios + cheerio     | gratuit   | ✅ implémenté|
-| 2    | `scrape_event_agencies_linkedin_from_apify_step2.ts`                  | [doc](./scrape_event_agencies_linkedin_from_apify_step2.md)                                          | Apify Google Search | $         | ✅ implémenté|
-| 3    | `scrape_event_agencies_employees_apify_step3.ts`                      | [doc](./scrape_event_agencies_employees_apify_step3.md)                                              | Apify Google Search | $         | ✅ implémenté|
-| 4    | _à venir_ — email enrichment (Dropcontact)                            | -                                                                                                    | Dropcontact API     | $         | ⏳ à faire   |
-| 5    | _à venir_ — stockage (Supabase)                                       | -                                                                                                    | -                   | -         | ⏳ à faire   |
+| Step | Script (`scripts/scrape_event_agencies/`)                    | Doc                                                                 | Tech                | Coût    | Statut        |
+| ---- | ------------------------------------------------------------ | ------------------------------------------------------------------- | ------------------- | ------- | ------------- |
+| 0    | `scrape_event_agencies_step0.ts`                             | _ce fichier_                                                        | Apify Google Maps   | $$      | ✅ implémenté |
+| 1    | `scrape_event_agencies_website_socials_and_contact_step1.ts` | [doc](./scrape_event_agencies_website_socials_and_contact_step1.md) | axios + cheerio     | gratuit | ✅ implémenté |
+| 2    | `scrape_event_agencies_linkedin_from_apify_step2.ts`         | [doc](./scrape_event_agencies_linkedin_from_apify_step2.md)         | Apify Google Search | $       | ✅ implémenté |
+| 3    | `scrape_event_agencies_employees_apify_step3.ts`             | [doc](./scrape_event_agencies_employees_apify_step3.md)             | Apify Google Search | $       | ✅ implémenté |
+| 4    | _à venir_ — email enrichment (Dropcontact)                   | -                                                                   | Dropcontact API     | $       | ⏳ à faire    |
+| 5    | _à venir_ — stockage (Supabase)                              | -                                                                   | -                   | -       | ⏳ à faire    |
 
 **Format de pipeline** : les steps **0, 1 et 2** réécrivent les **mêmes fichiers canoniques** (pas de timestamp dans les noms) :
 
@@ -59,7 +59,7 @@ les deux fichiers.
    - le dernier JSON step **1 ou 2** « avec timestamp » pour ce pays (si présent) → migration / enrichissements.
 3. **Réécrit** tous les JSON par ville concernés + le **CSV global** (normalisation / migration).
 4. Pour **chaque ville** planifiée :
-   - **Skip** la ville si `scrape_event_agencies_<country>_<citySlug>_<mode>.json` existe déjà (sauf `--refresh-all`).
+   - **Skip** la ville si `scrape_event_agencies_<country>_<citySlug>_<mode>.json` existe déjà (sauf `--force`).
    - Sinon, si seul un **legacy monolithique** existe : skip la ville seulement si **toutes** les requêtes `${variant} ${city}` sont déjà dans les `search_query` chargées.
    - Sinon : un run Apify pour cette ville uniquement.
    - **Dédup par `place_id`** sur l’état mémoire.
@@ -73,23 +73,23 @@ les deux fichiers.
 - **Prod** (`--prod`) : toutes les villes × toutes les variantes du pays,
   max 50 résultats par recherche.
 
-> **NB pour debug** : la 1re run debug écrit `scrape_event_agencies_fr_<parisSlug>_debug.json` + `scrape_event_agencies_fr_debug.csv`. Les runs suivants **skip** la ville si ce JSON existe — exit sans Apify. Pour re-scraper : `--refresh-all` ou supprimer ce fichier JSON.
+> **NB pour debug** : la 1re run debug écrit `scrape_event_agencies_fr_<parisSlug>_debug.json` + `scrape_event_agencies_fr_debug.csv`. Les runs suivants **skip** la ville si ce JSON existe — exit sans Apify. Pour re-scraper : `--force` ou supprimer ce fichier JSON.
 
 ## Paramètres CLI
 
-| Paramètre         | Obligatoire | Défaut                                                          | Description                                                                                                                                |
-|-------------------|-------------|-----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
-| `--country=<cc>`  | oui         | -                                                               | Code pays (`fr`, `en`, ...). Doit exister dans les deux JSON.                                                                              |
-| `--prod`          | non         | `false` (debug)                                                 | Active le mode prod (toutes villes × toutes variantes).                                                                                    |
-| `--refresh-all`   | non         | `false`                                                         | Re-lance Apify pour **chaque** ville, même si un JSON par ville existe déjà.                                                               |
-| `--max=<n>`       | non         | `10` debug / `50` prod                                          | Override du nombre max de résultats par recherche.                                                                                         |
-| `--output=<dir>`  | non         | `automation/output`                                             | Répertoire de sortie (les noms de fichiers suivent la convention ci-dessus).                                                              |
+| Paramètre        | Obligatoire | Défaut                 | Description                                                                  |
+| ---------------- | ----------- | ---------------------- | ---------------------------------------------------------------------------- |
+| `--country=<cc>` | oui         | -                      | Code pays (`fr`, `en`, ...). Doit exister dans les deux JSON.                |
+| `--prod`         | non         | `false` (debug)        | Active le mode prod (toutes villes × toutes variantes).                      |
+| `--force`        | non         | `false`                | Re-lance Apify pour **chaque** ville, même si un JSON par ville existe déjà. |
+| `--max=<n>`      | non         | `10` debug / `50` prod | Override du nombre max de résultats par recherche.                           |
+| `--output=<dir>` | non         | `automation/output`    | Répertoire de sortie (les noms de fichiers suivent la convention ci-dessus). |
 
 ## Variables d'environnement
 
-| Variable       | Obligatoire | Description                                                                 |
-|----------------|-------------|-----------------------------------------------------------------------------|
-| `APIFY_TOKEN`  | oui         | Token API Apify ([console.apify.com/account/integrations](https://console.apify.com/account/integrations)). |
+| Variable      | Obligatoire | Description                                                                                                 |
+| ------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
+| `APIFY_TOKEN` | oui         | Token API Apify ([console.apify.com/account/integrations](https://console.apify.com/account/integrations)). |
 
 ```bash
 cp .env.example .env
@@ -109,7 +109,7 @@ yarn scrape:event-agencies:step0 --country=fr --prod
 yarn scrape:event-agencies:step0:prod --country=fr   # alias équivalent
 
 # REFRESH : re-scraper toutes les villes (même si JSON par ville déjà présent)
-yarn scrape:event-agencies:step0 --country=fr --prod --refresh-all
+yarn scrape:event-agencies:step0 --country=fr --prod --force
 
 # override max et répertoire de sortie
 yarn scrape:event-agencies:step0 --country=fr --max=25 --output=output/my_batch
@@ -134,21 +134,21 @@ Une seule table **toutes villes confondues** (colonnes complètes après step 1/
 
 Champs principaux du JSON (le CSV step 1+ inclut aussi LinkedIn / emails / scrape site) :
 
-| Champ                | Description                                              |
-|----------------------|----------------------------------------------------------|
-| `processed_step`    | Avancement pipeline (voir types `Agency`)                |
-| `search_query`       | Requête Google Maps utilisée (`${variant} ${city}`)     |
-| `name`               | Nom de l'agence (titre Google Maps)                      |
-| `company_name`       | Libellé court : `name` sans variantes de recherche, ville, pays ni répétition de la catégorie ; puis troncature au premier ` - ` / tiret long / `_` / `/` (tagline Maps) (réécrit à chaque export canonique) |
-| `category`           | Catégorie principale (Google)                            |
-| `address`            | Adresse complète                                         |
-| `city`               | Ville extraite par Google                                |
-| `postal_code`        | Code postal                                              |
-| `country_code`       | Code pays (renvoyé par Google)                           |
-| `website`            | Site web                                                 |
-| `phone`              | Téléphone                                                |
-| `google_maps_url`    | URL Google Maps de la fiche                              |
-| `place_id`           | `placeId` Google (identifiant unique dans la pipeline)  |
+| Champ             | Description                                                                                                                                                                                                |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `processed_step`  | Avancement pipeline (voir types `Agency`)                                                                                                                                                                  |
+| `search_query`    | Requête Google Maps utilisée (`${variant} ${city}`)                                                                                                                                                        |
+| `name`            | Nom de l'agence (titre Google Maps)                                                                                                                                                                        |
+| `company_name`    | Libellé court : `name` sans variantes de recherche, ville, pays ni répétition de la catégorie ; puis troncature au premier `-` / tiret long / `_` / `/` (tagline Maps) (réécrit à chaque export canonique) |
+| `category`        | Catégorie principale (Google)                                                                                                                                                                              |
+| `address`         | Adresse complète                                                                                                                                                                                           |
+| `city`            | Ville extraite par Google                                                                                                                                                                                  |
+| `postal_code`     | Code postal                                                                                                                                                                                                |
+| `country_code`    | Code pays (renvoyé par Google)                                                                                                                                                                             |
+| `website`         | Site web                                                                                                                                                                                                   |
+| `phone`           | Téléphone                                                                                                                                                                                                  |
+| `google_maps_url` | URL Google Maps de la fiche                                                                                                                                                                                |
+| `place_id`        | `placeId` Google (identifiant unique dans la pipeline)                                                                                                                                                     |
 
 ## Optimisations de coût Apify
 
@@ -174,13 +174,13 @@ Apify facture **par place retournée**. Le script limite les coûts ainsi :
 
 Si le fichier canonique **`scrape_event_agencies_<country>_<citySlug>_<mode>.json`** existe déjà, la ville est **ignorée** : pas d’appel Apify, pas de dépense.
 
-Conséquence : si vous **ajoutez une nouvelle variante** de recherche dans `event_agencies_variants.json`, une ville déjà « figée » par son JSON ne prendra **pas** en compte la nouvelle variante tant que vous ne supprimez pas son JSON ou ne passez pas **`--refresh-all`**.
+Conséquence : si vous **ajoutez une nouvelle variante** de recherche dans `event_agencies_variants.json`, une ville déjà « figée » par son JSON ne prendra **pas** en compte la nouvelle variante tant que vous ne supprimez pas son JSON ou ne passez pas **`--force`**.
 
 ### Legacy monolithique
 
 Tant qu’il reste d’anciens fichiers **`..._<ts>.json`** sans slug de ville, le script les charge au merge. Pour le skip d’une ville **sans** JSON dédié, on vérifie si **toutes** les combinaisons `(variante, ville)` attendues sont déjà présentes dans les `search_query` des données chargées.
 
-### `--refresh-all` (override)
+### `--force` (override)
 
 Re-lance Apify **ville par ville**, même si les JSON par ville existent déjà (utile pour capter de nouvelles fiches Google). Le dédup par `place_id` continue de préserver les enrichissements step 1/2.
 
@@ -196,8 +196,8 @@ Sans `--input`, la step 1 **merge automatiquement** la partition step0 la plus r
 
 L'actor `compass/google-maps-extractor` est facturé **au résultat** (~ 4 USD / 1000 places en mode "place only", à vérifier sur la page actor). En debug, on plafonne à 10 résultats donc le test coûte des centimes.
 
-| Scénario                                                                    | Coût estimé      |
-|-----------------------------------------------------------------------------|------------------|
-| Premier run prod FR (N villes × V variantes × 50)                          | ~ variable       |
-| Re-run : villes déjà couvertes par JSON dédié                               | **0 USD**        |
-| Re-run avec `--refresh-all` (toutes les villes re-scrapées)                 | ~ coût « plein » |
+| Scénario                                              | Coût estimé      |
+| ----------------------------------------------------- | ---------------- |
+| Premier run prod FR (N villes × V variantes × 50)     | ~ variable       |
+| Re-run : villes déjà couvertes par JSON dédié         | **0 USD**        |
+| Re-run avec `--force` (toutes les villes re-scrapées) | ~ coût « plein » |

@@ -27,14 +27,14 @@ l'identifiant unique `place_id` (Google).
 
 ## Scripts (dans l'ordre du pipeline)
 
-| Step | Script (`scripts/scrape_event_agencies/`)                            | En 1 ligne                                                                                            | Tech                | Coût      | Doc                                                                                                  |
-|------|----------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|---------------------|-----------|------------------------------------------------------------------------------------------------------|
-| 0    | `scrape_event_agencies_step0.ts`                                     | Scrape la liste des agences depuis Google Maps via Apify (`compass/google-maps-extractor`).           | Apify Google Maps   | $$        | [doc](./scrape_event_agencies_from_google_maps_step0.md)                                             |
-| 1    | `scrape_event_agencies_website_socials_and_contact_step1.ts`         | Scrape site : LinkedIn, emails, réseaux sociaux.                                                    | axios + cheerio     | gratuit   | [doc](./scrape_event_agencies_website_socials_and_contact_step1.md)                                  |
-| 2    | `scrape_event_agencies_linkedin_from_apify_step2.ts`                 | Pour les agences sans LinkedIn après step 1, fallback Google search via Apify (`apify/google-search-scraper`). | Apify Google Search | $         | [doc](./scrape_event_agencies_linkedin_from_apify_step2.md)                                          |
-| 3    | `scrape_event_agencies_employees_apify_step3.ts`                     | Google `site:linkedin.com/in` + Apify : URLs profils, rôles ; `contact_email` en step 4.              | Apify Google Search | $         | [doc](./scrape_event_agencies_employees_apify_step3.md)                                              |
-| 4    | _à venir_                                                            | Enrichissement emails pro via Dropcontact (prénom + nom + domaine).                                   | Dropcontact API     | $         | -                                                                                                    |
-| 5    | _à venir_                                                            | Stockage en base (Supabase ou autre).                                                                 | -                   | -         | -                                                                                                    |
+| Step | Script (`scripts/scrape_event_agencies/`)                    | En 1 ligne                                                                                                     | Tech                | Coût    | Doc                                                                 |
+| ---- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | ------------------- | ------- | ------------------------------------------------------------------- |
+| 0    | `scrape_event_agencies_step0.ts`                             | Scrape la liste des agences depuis Google Maps via Apify (`compass/google-maps-extractor`).                    | Apify Google Maps   | $$      | [doc](./scrape_event_agencies_from_google_maps_step0.md)            |
+| 1    | `scrape_event_agencies_website_socials_and_contact_step1.ts` | Scrape site : LinkedIn, emails, réseaux sociaux.                                                               | axios + cheerio     | gratuit | [doc](./scrape_event_agencies_website_socials_and_contact_step1.md) |
+| 2    | `scrape_event_agencies_linkedin_from_apify_step2.ts`         | Pour les agences sans LinkedIn après step 1, fallback Google search via Apify (`apify/google-search-scraper`). | Apify Google Search | $       | [doc](./scrape_event_agencies_linkedin_from_apify_step2.md)         |
+| 3    | `scrape_event_agencies_employees_apify_step3.ts`             | Google `site:linkedin.com/in` + Apify : URLs profils, rôles ; `contact_email` en step 4.                       | Apify Google Search | $       | [doc](./scrape_event_agencies_employees_apify_step3.md)             |
+| 4    | _à venir_                                                    | Enrichissement emails pro via Dropcontact (prénom + nom + domaine).                                            | Dropcontact API     | $       | -                                                                   |
+| 5    | _à venir_                                                    | Stockage en base (Supabase ou autre).                                                                          | -                   | -       | -                                                                   |
 
 ## Quick-start
 
@@ -69,7 +69,7 @@ yarn scrape:event-agencies:step2                        # idem qu'en debug, trai
 - L'output est **cumulatif** : on auto-charge le dernier output existant pour ce pays (enrichissements step 1/2 préservés) et on ajoute uniquement les nouvelles agences.
 - **Skip par défaut** les requêtes `(city, variant)` déjà lancées avant pour ce pays. Si tout est déjà fait → script exit early, **0 USD payé**.
 - Dédup par `place_id` contre l'existant.
-- `--refresh-all` : re-lance TOUTES les requêtes même les déjà-connues (utile pour capter les nouvelles agences indexées par Google).
+- `--force` : re-lance TOUTES les requêtes même les déjà-connues (utile pour capter les nouvelles agences indexées par Google).
 
 ### Step 1 et step 2
 
@@ -79,12 +79,12 @@ yarn scrape:event-agencies:step2                        # idem qu'en debug, trai
 
 Flags utiles :
 
-| Flag            | Step 0                                                                   | Step 1                                                 | Step 2                                                             |
-|-----------------|--------------------------------------------------------------------------|--------------------------------------------------------|--------------------------------------------------------------------|
-| `--refresh-all` | Re-lance toutes les requêtes (même les déjà-connues)                    | -                                                      | -                                                                  |
-| `--force`       | -                                                                        | Retraite tout (utile pour retenter http_error/timeout) | Retente aussi les `not_found` (utile après tweak de `--threshold`) |
-| `--limit`       | -                                                                        | Cap sur le nb d'agences traitées dans CE run           | Cap sur le nb d'agences traitées dans CE run                       |
-| `--input`       | -                                                                        | Override le fichier d'entrée                           | Override le fichier d'entrée                                       |
+| Flag      | Step 0                                               | Step 1                                                 | Step 2                                                             |
+| --------- | ---------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------ |
+| `--force` | Re-lance toutes les requêtes (même les déjà-connues) | -                                                      | -                                                                  |
+| `--force` | -                                                    | Retraite tout (utile pour retenter http_error/timeout) | Retente aussi les `not_found` (utile après tweak de `--threshold`) |
+| `--limit` | -                                                    | Cap sur le nb d'agences traitées dans CE run           | Cap sur le nb d'agences traitées dans CE run                       |
+| `--input` | -                                                    | Override le fichier d'entrée                           | Override le fichier d'entrée                                       |
 
 ## Naming des fichiers de sortie
 
