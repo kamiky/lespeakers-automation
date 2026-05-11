@@ -19,7 +19,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ApifyClient } from 'apify-client';
 
-import citiesJson from '../../src/constants/cities.json' with { type: 'json' };
 import variantsJson from '../../src/constants/event_agencies_variants.json' with { type: 'json' };
 import { type Agency, effectiveProcessedStep } from '../../src/types/agency.js';
 import {
@@ -38,7 +37,6 @@ import {
   loadAgenciesFromJson,
   loadStep0PartitionMergedForCountry,
   mergeAgenciesByPlaceIdPreferOverlay,
-  resolveCityFromCliArg,
   slugifyCityForFilename,
   writeCanonicalEventAgenciesOutputs,
 } from '../../src/utils/output.js';
@@ -50,23 +48,25 @@ const STEP3_OUTPUT_PREFIX = 'scrape_event_agencies_with_employees';
 const DEFAULT_THRESHOLD = 0.4;
 const RESULTS_PER_QUERY = 5;
 
-interface CitiesByCountry {
-  [country: string]: string[];
-}
 interface VariantsByCountry {
   [country: string]: string[];
 }
 
-function loadCitiesAndVariants(country: string): { cities: string[]; variants: string[] } {
-  const cities = (citiesJson as CitiesByCountry)[country];
+function loadVariants(country: string): string[] {
   const variants = (variantsJson as VariantsByCountry)[country];
-  if (!cities?.length) {
-    throw new Error(`No cities for country "${country}" in cities.json`);
-  }
   if (!variants?.length) {
     throw new Error(`No variants for country "${country}" in event_agencies_variants.json`);
   }
-  return { cities, variants };
+  return variants;
+}
+
+function inferCitiesFromAgencies(agencies: Agency[]): string[] {
+  const out = new Set<string>();
+  for (const a of agencies) {
+    const c = a.city?.trim();
+    if (c) out.add(c);
+  }
+  return [...out];
 }
 
 interface OrganicResult {
@@ -197,10 +197,9 @@ async function main(): Promise<void> {
   }
   const modeOutputDir = getModeOutputDir(outputBaseDir, mode);
 
-  const { cities: allCities, variants: allVariants } = loadCitiesAndVariants(country);
-  const queryToSlug = buildSearchQueryToCitySlugMap(allCities, allVariants);
+  const allVariants = loadVariants(country);
   const citySlugFilter = cityArg
-    ? slugifyCityForFilename(resolveCityFromCliArg(allCities, cityArg))
+    ? slugifyCityForFilename(cityArg.trim())
     : undefined;
 
   let inputPath: string;
@@ -254,11 +253,15 @@ async function main(): Promise<void> {
   }
 
   console.log(`[input] Loaded ${allAgencies.length} total agencies.`);
+  const allCities = inferCitiesFromAgencies(allAgencies);
+  const queryToSlug = buildSearchQueryToCitySlugMap(allCities, allVariants);
 
   let pending = allAgencies.filter((a) => shouldProcess(a, force));
   if (citySlugFilter) {
     pending = pending.filter(
-      (a) => queryToSlug.get(a.search_query?.trim() ?? '') === citySlugFilter,
+      (a) =>
+        queryToSlug.get(a.search_query?.trim() ?? '') === citySlugFilter ||
+        slugifyCityForFilename(a.city ?? '') === citySlugFilter,
     );
     console.log(
       `[city] Restricting work to slug "${citySlugFilter}" (${pending.length} pending of ${allAgencies.length} total).`,

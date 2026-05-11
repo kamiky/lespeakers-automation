@@ -193,7 +193,10 @@ export function slugifyCityForFilename(city: string): string {
   return s.length > 0 ? s : 'city';
 }
 
-/** Match CLI `--city=paris` to the canonical label from `cities.json` (case-insensitive). */
+/**
+ * Match CLI `--city=paris` to `cities.json` when possible.
+ * If not found, keep the user-provided city (free-form city override).
+ */
 export function resolveCityFromCliArg(cities: string[], cityArg: string): string {
   const trimmed = cityArg.trim();
   if (!trimmed) {
@@ -205,9 +208,7 @@ export function resolveCityFromCliArg(cities: string[], cityArg: string): string
     if (c.toLowerCase() === lower) return c;
     if (slugifyCityForFilename(c) === slugArg) return c;
   }
-  throw new Error(
-    `City "${trimmed}" not found for this country. Known cities: ${cities.join(', ')}`,
-  );
+  return trimmed;
 }
 
 /**
@@ -482,7 +483,11 @@ export function partitionAgenciesByCitySlug(
   const bySlug = new Map<string, Agency[]>();
   for (const a of agencies) {
     const q = a.search_query?.trim() ?? '';
-    const slug = queryToCitySlug.get(q);
+    let slug = queryToCitySlug.get(q);
+    if (!slug) {
+      const cityFromRow = a.city?.trim() ?? '';
+      if (cityFromRow) slug = slugifyCityForFilename(cityFromRow);
+    }
     if (!slug) continue;
     if (!bySlug.has(slug)) bySlug.set(slug, []);
     bySlug.get(slug)!.push(a);
