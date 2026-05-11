@@ -3,9 +3,11 @@
 ## Exemples yarn (`automation/`)
 
 ```bash
-yarn scrape:event-agencies:step2
-yarn scrape:event-agencies:step2 --force --limit=20
-yarn scrape:event-agencies:step2 --input=./output/scrape_event_agencies_fr_paris_debug.json
+yarn scrape:event-agencies:step2 --country=fr
+yarn scrape:event-agencies:step2 --country=fr --prod
+yarn scrape:event-agencies:step2 --country=fr --city=paris
+yarn scrape:event-agencies:step2 --country=fr --force --limit=20
+yarn scrape:event-agencies:step2 --input=./output/debug/scrape_event_agencies_fr_paris.json
 ```
 
 **STEP 2** du pipeline. Lit le JSON produit par la
@@ -24,12 +26,11 @@ La [STEP 3](./scrape_event_agencies_employees_apify_step3.md) réutilise le mêm
 
 Cette étape est **resumable** :
 
-- L'auto-input prend le **JSON le plus récent** parmi les outputs STEP 1, STEP 2 et STEP 3 (fichiers timestampés legacy).
+- L'auto-input merge la **partition STEP 0** pour `--country` + `output/debug|prod/`, avec overlay du **JSON timestampé le plus récent** step 1/2/3 du même pays si présent.
 - Une agence est **skippée** si :
   - Elle a déjà un `linkedin_company_url` (trouvé en STEP 1 ou STEP 2 précédente).
   - Son `linkedin_source === 'not_found'` (STEP 2 précédente a essayé sans succès).
-- Le scope debug/prod a été choisi à la STEP 0. Cette étape traite simplement
-  ce qu'il y a dans l'input — pas de `--prod`.
+- **`--prod`** aligne lecture/écriture sur `output/prod/` (sinon `output/debug/`).
 
 `--force` pour retenter aussi les `not_found` (utile si on a tweaké
 `--threshold`). **Les URLs LinkedIn déjà trouvées ne sont jamais écrasées.**
@@ -78,11 +79,14 @@ Pour chaque agence "à traiter" :
 
 | Paramètre          | Obligatoire | Défaut                                                                                | Description                                                                  |
 |--------------------|-------------|---------------------------------------------------------------------------------------|------------------------------------------------------------------------------|
-| `--input=<path>`   | non         | dernier JSON `output/scrape_event_agencies_with_(website_data\|linkedin_search)_*.json` | Path du JSON d'entrée.                                                       |
+| `--country=<cc>`   | oui         | -                                                                                     | Pays, ex. `fr`.                                                             |
+| `--city=<nom>`     | non         | toutes les villes                                                                     | Casse ignorée ; ne traite / ne réécrit que le JSON de cette ville.           |
+| `--prod`           | non         | `false`                                                                               | `output/prod/` au lieu de `output/debug/`.                                   |
+| `--input=<path>`   | non         | merge STEP 0 canonique                                                                | JSON d’entrée explicite.                                                     |
 | `--force`          | non         | `false`                                                                               | Retente aussi les agences marquées `not_found` par un run précédent.         |
 | `--limit=<n>`      | non         | -                                                                                     | Cap dur sur le nombre d'agences traitées dans ce run.                        |
 | `--threshold=<f>`  | non         | `0.4`                                                                                 | Seuil Jaccard de validation (0..1). Plus haut = plus strict.                 |
-| `--output=<path>`  | non         | auto                                                                                  | Override du base path (sans extension).                                      |
+| `--output=<dir>`   | non         | `automation/output`                                                                   | Racine ; canoniques sous `<dir>/debug|prod/`.                                |
 
 ## Variables d'environnement
 
@@ -93,29 +97,25 @@ Pour chaque agence "à traiter" :
 ## Exécution
 
 ```bash
-# défaut : reprend le dernier output et traite uniquement les agences sans linkedin_source
-yarn scrape:event-agencies:step2
+yarn scrape:event-agencies:step2 --country=fr
 
 # retenter aussi les "not_found"
-yarn scrape:event-agencies:step2 --force
+yarn scrape:event-agencies:step2 --country=fr --force
 
 # input explicite
-yarn scrape:event-agencies:step2 \
-  --input=output/scrape_event_agencies_with_website_data_fr_debug_xxx.json
+yarn scrape:event-agencies:step2 --country=fr \
+  --input=./output/debug/scrape_event_agencies_fr_paris.json
 
 # threshold plus strict (moins de faux positifs, mais moins de matches)
-yarn scrape:event-agencies:step2 --threshold=0.5
+yarn scrape:event-agencies:step2 --country=fr --threshold=0.5
 ```
 
 ## Format de sortie
 
-Chemin par défaut :
+Les steps 0–3 **réécrivent les fichiers canoniques** (voir [STEP 0](./scrape_event_agencies_from_google_maps_step0.md)) :
 
-- JSON : `output/scrape_event_agencies_with_linkedin_search_<country>_<mode>_<timestamp>.json`
-- CSV  : `output/scrape_event_agencies_with_linkedin_search_<country>_<mode>_<timestamp>.csv`
-
-Le `<country>` et `<mode>` sont **inférés du nom de l'input** (ils suivent
-le scope choisi à la STEP 0).
+- `output/<debug|prod>/scrape_event_agencies_<country>_<citySlug>.json`
+- `output/<debug|prod>/scrape_event_agencies_<country>.csv`
 
 Champs : tous ceux de la STEP 1, plus :
 

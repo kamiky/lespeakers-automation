@@ -3,8 +3,10 @@
 ## Exemples yarn (`automation/`)
 
 ```bash
-yarn scrape:event-agencies:step1
-yarn scrape:event-agencies:step1 --force --limit=20
+yarn scrape:event-agencies:step1 --country=fr
+yarn scrape:event-agencies:step1 --country=fr --prod
+yarn scrape:event-agencies:step1 --country=fr --city=paris
+yarn scrape:event-agencies:step1 --country=fr --force --limit=20
 yarn scrape:event-agencies:step1 --debug-url=https://example.com/contact
 yarn scrape:event-agencies:step1 --apify-when-block --limit=10
 ```
@@ -12,8 +14,8 @@ yarn scrape:event-agencies:step1 --apify-when-block --limit=10
 **STEP 1** du pipeline. Lit les JSON canoniques produits par la
 [STEP 0](./scrape_event_agencies_from_google_maps_step0.md) et **réécrit les mêmes fichiers** :
 
-- `output/scrape_event_agencies_<country>_<citySlug>_<mode>.json`
-- `output/scrape_event_agencies_<country>_<mode>.csv`
+- `output/<debug|prod>/scrape_event_agencies_<country>_<citySlug>.json`
+- `output/<debug|prod>/scrape_event_agencies_<country>.csv`
 
 Pour chaque agence à traiter, le script **scrape le site web** (axios + cheerio) et enrichit :
 
@@ -58,8 +60,8 @@ Pour chaque agence à traiter, le script **scrape le site web** (axios + cheerio
 
 ## Idempotence
 
-- Auto-input : merge des JSON canoniques + overlay optionnel d’anciens fichiers
-  `scrape_event_agencies_with_website_data_*` / `*_with_linkedin_search_*` (migration).
+- Auto-input : merge des JSON canoniques **pour `--country` + `--prod`/`debug`**
+  sous `output/<mode>/` + overlay optionnel d’anciens fichiers timestampés (migration).
 - Skip des agences déjà à `processed_step >= 1` (ou legacy : `website_scrape_status` défini), sauf `--force`.
 
 ---
@@ -68,9 +70,12 @@ Pour chaque agence à traiter, le script **scrape le site web** (axios + cheerio
 
 | Paramètre | Obligatoire | Description |
 |-----------|-------------|---------------|
+| `--country=<cc>` | oui (sauf `--debug-url`) | Pays, ex. `fr`. |
+| `--city=<nom>` | non | Limite le travail (et les réécritures JSON) à cette ville ; casse ignorée. |
+| `--prod` | non | Utilise `output/prod/` au lieu de `output/debug/`. |
 | `--debug-url=<url>` | non | Scrape **une seule** URL, logs détaillés (`[website-scraper]`), résultat JSON sur stdout ; **aucune** écriture pipeline. Préfixe `https://` ajouté si absent. |
 | `--input=<path>` | non | JSON d’entrée explicite. |
-| `--output=<dir>` | non | Répertoire des fichiers canoniques (défaut : `automation/output`). |
+| `--output=<dir>` | non | Racine des sorties (défaut : `automation/output`) ; canoniques dans `<dir>/debug|prod/`. |
 | `--force` | non | Retraiter toutes les agences. |
 | `--limit=<n>` | non | Plafond d’agences traitées. |
 | `--concurrency=<n>` | non | Parallélisme HTTP (défaut `5`). |
@@ -88,7 +93,7 @@ Pour chaque agence à traiter, le script **scrape le site web** (axios + cheerio
 ## Exécution
 
 ```bash
-yarn scrape:event-agencies:step1
+yarn scrape:event-agencies:step1 --country=fr
 
 # Déboguer une URL précise (ex. site qui renvoie 403 sur la home)
 yarn scrape:event-agencies:step1 --debug-url=https://www.agence-evenementielle-innovevents.fr/reseau-evenementiel/paris/

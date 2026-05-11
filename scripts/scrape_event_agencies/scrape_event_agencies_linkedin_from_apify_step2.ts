@@ -2,14 +2,16 @@
  * scrape_event_agencies_linkedin_from_apify_step2.ts
  *
  * EXAMPLES (run from the `automation/` directory — same cwd as `yarn`):
- *   yarn scrape:event-agencies:step2
- *   yarn scrape:event-agencies:step2 --force --limit=20
- *   yarn scrape:event-agencies:step2 --input=./output/scrape_event_agencies_fr_paris_debug.json
+ *   yarn scrape:event-agencies:step2 --country=fr
+ *   yarn scrape:event-agencies:step2 --country=fr --prod
+ *   yarn scrape:event-agencies:step2 --country=fr --city=paris
+ *   yarn scrape:event-agencies:step2 --country=fr --force --limit=20
+ *   yarn scrape:event-agencies:step2 --input=./output/debug/scrape_event_agencies_fr_paris.json
  *
  * STEP 2 — Apify Google search for LinkedIn company URLs.
- * Rewrites **canonical** pipeline files (same as step 1):
- *   scrape_event_agencies_<country>_<citySlug>_<mode>.json
- *   scrape_event_agencies_<country>_<mode>.csv
+ * Rewrites **canonical** pipeline files under `output/<debug|prod>/`:
+ *   scrape_event_agencies_<country>_<citySlug>.json
+ *   scrape_event_agencies_<country>.csv
  */
 
 import 'dotenv/config';
@@ -30,11 +32,14 @@ import { agencyLabelForSearch } from '../../src/utils/company_name.js';
 import { nameMatchScore } from '../../src/utils/fuzzy_match.js';
 import {
   OUTPUT_DIR,
+  buildSearchQueryToCitySlugMap,
   findLatestJsonOutput,
-  inferCountryAndModeFromFilename,
+  getModeOutputDir,
   loadAgenciesFromJson,
-  loadLatestStep0PartitionMerged,
+  loadStep0PartitionMergedForCountry,
   mergeAgenciesByPlaceIdPreferOverlay,
+  resolveCityFromCliArg,
+  slugifyCityForFilename,
   writeCanonicalEventAgenciesOutputs,
 } from '../../src/utils/output.js';
 
@@ -164,10 +169,17 @@ function shouldProcess(agency: Agency, force: boolean): boolean {
 
 async function main(): Promise<void> {
   const args = parseCliArgs(process.argv);
+  const country = getStringArg(args, 'country')?.toLowerCase();
+  if (!country) {
+    throw new Error('Missing required parameter --country=<code>. Example: --country=fr');
+  }
   const force = getBoolArg(args, 'force');
   const limit = getIntArg(args, 'limit');
   const inputOverride = getStringArg(args, 'input');
   const outputOverride = getStringArg(args, 'output');
+  const cityArg = getStringArg(args, 'city');
+  const isProd = getBoolArg(args, 'prod');
+  const mode = isProd ? 'prod' : 'debug';
   const thresholdRaw = getStringArg(args, 'threshold');
   const threshold = thresholdRaw !== undefined ? Number(thresholdRaw) : DEFAULT_THRESHOLD;
   if (Number.isNaN(threshold) || threshold < 0 || threshold > 1) {
@@ -179,10 +191,17 @@ async function main(): Promise<void> {
     throw new Error('Missing APIFY_TOKEN env var. Copy .env.example to .env and fill it in.');
   }
 
-  const outputDir = outputOverride ? path.resolve(process.cwd(), outputOverride) : OUTPUT_DIR;
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
+  const outputBaseDir = outputOverride ? path.resolve(process.cwd(), outputOverride) : OUTPUT_DIR;
+  if (!fs.existsSync(outputBaseDir)) {
+    fs.mkdirSync(outputBaseDir, { recursive: true });
   }
+  const modeOutputDir = getModeOutputDir(outputBaseDir, mode);
+
+  const { cities: allCities, variants: allVariants } = loadCitiesAndVariants(country);
+  const queryToSlug = buildSearchQueryToCitySlugMap(allCities, allVariants);
+  const citySlugFilter = cityArg
+    ? slugifyCityForFilename(resolveCityFromCliArg(allCities, cityArg))
+    : undefined;
 
   let inputPath: string;
   let allAgencies: Agency[];
@@ -192,38 +211,40 @@ async function main(): Promise<void> {
     console.log(`[input] Loading agencies from ${inputPath}`);
     allAgencies = loadAgenciesFromJson(inputPath);
   } else {
-    const merged = loadLatestStep0PartitionMerged({ outputDir });
+    const merged = loadStep0PartitionMergedForCountry({
+      outputBaseDir,
+      country,
+      mode,
+    });
     if (merged.agencies.length > 0) {
       allAgencies = merged.agencies;
       inputPath = merged.representativePath ?? merged.sourcePaths[0] ?? '';
       console.log(
-        `[input] Merged canonical partition ${merged.country}/${merged.mode} (${merged.sourcePaths.length} file(s)) -> ${allAgencies.length} agencies.`,
+        `[input] Merged step0 partition ${country}/${mode} (${merged.sourcePaths.length} file(s)) -> ${allAgencies.length} agencies.`,
       );
       merged.sourcePaths.forEach((p) => console.log(`       ${p}`));
-      if (merged.country) {
-        const legacy = findLatestJsonOutput(
-          [STEP1_OUTPUT_PREFIX, OUTPUT_PREFIX, STEP3_OUTPUT_PREFIX],
-          {
-            country: merged.country,
-            outputDir,
-          },
+      const legacy = findLatestJsonOutput(
+        [STEP1_OUTPUT_PREFIX, OUTPUT_PREFIX, STEP3_OUTPUT_PREFIX],
+        {
+          country,
+          outputDir: outputBaseDir,
+        },
+      );
+      if (legacy) {
+        allAgencies = mergeAgenciesByPlaceIdPreferOverlay(
+          allAgencies,
+          loadAgenciesFromJson(legacy),
         );
-        if (legacy) {
-          allAgencies = mergeAgenciesByPlaceIdPreferOverlay(
-            allAgencies,
-            loadAgenciesFromJson(legacy),
-          );
-          console.log(`[input] Overlay legacy file ${legacy}`);
-        }
+        console.log(`[input] Overlay legacy file ${legacy}`);
       }
     } else {
       const fallback = findLatestJsonOutput(
         [STEP1_OUTPUT_PREFIX, OUTPUT_PREFIX, STEP3_OUTPUT_PREFIX],
-        { outputDir },
+        { country, outputDir: outputBaseDir },
       );
       if (!fallback) {
         throw new Error(
-          `No input found. Pass --input=<path> or run step 0 / step 1 first.`,
+          `No input found for ${country}/${mode}. Pass --input=<path> or run step 0 / step 1 first.`,
         );
       }
       inputPath = fallback;
@@ -235,8 +256,16 @@ async function main(): Promise<void> {
   console.log(`[input] Loaded ${allAgencies.length} total agencies.`);
 
   let pending = allAgencies.filter((a) => shouldProcess(a, force));
+  if (citySlugFilter) {
+    pending = pending.filter(
+      (a) => queryToSlug.get(a.search_query?.trim() ?? '') === citySlugFilter,
+    );
+    console.log(
+      `[city] Restricting work to slug "${citySlugFilter}" (${pending.length} pending of ${allAgencies.length} total).`,
+    );
+  }
   const skipped = allAgencies.length - pending.length;
-  if (skipped > 0) {
+  if (skipped > 0 && !citySlugFilter) {
     console.log(
       `[skip] ${skipped} agency(ies) already resolved or already attempted (use --force to retry "not_found").`,
     );
@@ -256,11 +285,6 @@ async function main(): Promise<void> {
       processed_step: effectiveProcessedStep(a),
     }));
   } else {
-    const inferred = inferCountryAndModeFromFilename(inputPath);
-    const country =
-      inferred.country ?? (allAgencies[0]?.country_code ?? 'fr').toLowerCase().slice(0, 2);
-
-    const { variants: allVariants } = loadCitiesAndVariants(country);
     const queries = pending.map((a) => buildQueryFor(a, allVariants));
 
     const client = new ApifyClient({ token: apifyToken });
@@ -336,20 +360,13 @@ async function main(): Promise<void> {
   console.log(`[stats]   from apify   : ${fromApify}`);
   console.log(`[stats]   not_found    : ${notFound}`);
 
-  const inferred = inferCountryAndModeFromFilename(inputPath);
-  const country =
-    inferred.country ??
-    (enriched[0]?.country_code ?? 'fr').toLowerCase().slice(0, 2);
-  const mode = inferred.mode ?? 'debug';
-
-  const { cities: allCities, variants: allVariants } = loadCitiesAndVariants(country);
   const { cityPaths, globalCsvPath } = await writeCanonicalEventAgenciesOutputs({
-    outputDir,
+    modeOutputDir,
     country,
-    mode,
     cities: allCities,
     variants: allVariants,
     allAgencies: enriched,
+    writeCitySlugsOnly: citySlugFilter ? [citySlugFilter] : undefined,
   });
 
   console.log(`[csv]  ${globalCsvPath} (${enriched.length} row(s))`);

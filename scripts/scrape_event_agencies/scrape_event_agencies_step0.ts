@@ -5,14 +5,15 @@
  *   yarn scrape:event-agencies:step0 --country=fr
  *   yarn scrape:event-agencies:step0 --country=fr --prod
  *   yarn scrape:event-agencies:step0:prod --country=fr
+ *   yarn scrape:event-agencies:step0 --country=fr --city=paris
  *   yarn scrape:event-agencies:step0 --country=fr --force
  *
  * STEP 0 of the event-agencies pipeline.
  *
  * Scrape event agencies from Google Maps via Apify (actor: compass/google-maps-extractor),
- * then rewrite **canonical files** (no timestamps):
- *   scrape_event_agencies_<country>_<citySlug>_<mode>.json  — one JSON per city
- *   scrape_event_agencies_<country>_<mode>.csv            — global CSV (all cities)
+ * then rewrite **canonical files** (no timestamps) under `output/<debug|prod>/`:
+ *   scrape_event_agencies_<country>_<citySlug>.json  — one JSON per city
+ *   scrape_event_agencies_<country>.csv             — global CSV (all cities)
  *
  * --------------------------------------------------------------------------
  * COST OPTIMIZATIONS ON RE-RUNS
@@ -28,10 +29,12 @@
  * PARAMETERS
  * --------------------------------------------------------------------------
  *   --country=<code>  (required)  Country code (lowercase, e.g. "fr", "en").
- *   --prod            (optional)  All cities × all variants.
- *   --force     (optional)  Re-run Apify for every city.
+ *   --city=<name>     (optional)  Only this city (case-insensitive; matches cities.json).
+ *   --prod            (optional)  `output/prod/`, all variants, higher result cap.
+ *                                 Without it: `output/debug/`, one variant (cheaper).
+ *   --force     (optional)  Re-run Apify for every planned city.
  *   --max=<number>    (optional)  Max results per search (default 10 debug / 50 prod).
- *   --output=<dir>    (optional)  Output directory (default: automation/output).
+ *   --output=<dir>    (optional)  Output base directory (default: automation/output).
  */
 
 import "dotenv/config";
@@ -52,8 +55,10 @@ import {
   OUTPUT_DIR,
   collectStep0JsonPathsForCountryMerge,
   findLatestJsonOutput,
+  getModeOutputDir,
   hasDedicatedStep0JsonForCity,
   loadAgenciesFromJson,
+  resolveCityFromCliArg,
   slugifyCityForFilename,
   writeCanonicalEventAgenciesOutputs,
 } from "../../src/utils/output.js";
@@ -113,16 +118,16 @@ function buildSearchQueriesForCity(city: string, variants: string[]): string[] {
 }
 
 function hasLegacyMonolithicStep0Json(
-  outputDir: string,
+  outputBaseDir: string,
   country: string,
   mode: string,
 ): boolean {
-  if (!fs.existsSync(outputDir)) return false;
+  if (!fs.existsSync(outputBaseDir)) return false;
   const ts = String.raw`\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}`;
   const re = new RegExp(
     `^scrape_event_agencies_${country}_${mode}_(${ts})\\.json$`,
   );
-  return fs.readdirSync(outputDir).some((n) => re.test(n));
+  return fs.readdirSync(outputBaseDir).some((n) => re.test(n));
 }
 
 function cityQueriesSatisfied(
@@ -196,7 +201,8 @@ function mergeAgenciesIntoMap(map: Map<string, Agency>, rows: Agency[]): void {
 
 function shouldSkipCity(params: {
   refreshAll: boolean;
-  outputDir: string;
+  outputBaseDir: string;
+  modeOutputDir: string;
   country: string;
   mode: "debug" | "prod";
   city: string;
@@ -206,7 +212,8 @@ function shouldSkipCity(params: {
 }): boolean {
   const {
     refreshAll,
-    outputDir,
+    outputBaseDir,
+    modeOutputDir,
     country,
     mode,
     city,
@@ -215,11 +222,19 @@ function shouldSkipCity(params: {
     knownQueries,
   } = params;
   if (refreshAll) return false;
-  if (hasDedicatedStep0JsonForCity({ outputDir, country, mode, citySlug })) {
+  if (
+    hasDedicatedStep0JsonForCity({
+      outputBaseDir,
+      modeOutputDir,
+      country,
+      mode,
+      citySlug,
+    })
+  ) {
     return true;
   }
   if (
-    hasLegacyMonolithicStep0Json(outputDir, country, mode) &&
+    hasLegacyMonolithicStep0Json(outputBaseDir, country, mode) &&
     cityQueriesSatisfied(city, variants, knownQueries)
   ) {
     return true;
@@ -239,6 +254,7 @@ async function main(): Promise<void> {
   const refreshAll = getBoolArg(args, "force");
   const maxOverride = getIntArg(args, "max");
   const outputOverride = getStringArg(args, "output");
+  const cityArg = getStringArg(args, "city");
 
   const apifyToken = process.env.APIFY_TOKEN;
   if (!apifyToken) {
@@ -253,39 +269,48 @@ async function main(): Promise<void> {
   let cities: string[];
   let variants: string[];
   let maxResults: number;
+  let singleCitySlug: string | undefined;
+
+  if (cityArg) {
+    const resolved = resolveCityFromCliArg(allCities, cityArg);
+    cities = [resolved];
+    singleCitySlug = slugifyCityForFilename(resolved);
+  } else {
+    cities = [...allCities];
+  }
 
   if (isProd) {
-    cities = allCities;
     variants = allVariants;
     maxResults = maxOverride ?? PROD_MAX_RESULTS;
     console.log(
-      `[mode] PROD - country=${country}, cities=${cities.length}, variants=${variants.length}, max/search=${maxResults}`,
+      `[mode] PROD -> output/prod/ — country=${country}, cities=${cities.length}, variants=${variants.length}, max/search=${maxResults}`,
     );
   } else {
-    const debugCity =
-      allCities.find((c) => c.toLowerCase() === "paris") ?? allCities[0];
-    cities = [debugCity];
     variants = [allVariants[0]];
     maxResults = maxOverride ?? DEBUG_MAX_RESULTS;
     console.log(
-      `[mode] DEBUG - country=${country}, city="${cities[0]}", variant="${variants[0]}", max/search=${maxResults}`,
+      `[mode] DEBUG -> output/debug/ — country=${country}, cities=${cities.length}, variant="${variants[0]}", max/search=${maxResults}`,
     );
-    console.log("[mode] Pass --prod to run on every city x variant.");
+    console.log("[mode] Pass --prod for output/prod/, all variants, higher caps.");
   }
 
   const mode: "debug" | "prod" = isProd ? "prod" : "debug";
-  const outputDir = outputOverride
+  const outputBaseDir = outputOverride
     ? path.resolve(process.cwd(), outputOverride)
     : OUTPUT_DIR;
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
+  if (!fs.existsSync(outputBaseDir)) {
+    fs.mkdirSync(outputBaseDir, { recursive: true });
+  }
+  const modeOutputDir = getModeOutputDir(outputBaseDir, mode);
+  if (!fs.existsSync(modeOutputDir)) {
+    fs.mkdirSync(modeOutputDir, { recursive: true });
   }
 
   const existingByPlaceId = new Map<string, Agency>();
   const knownQueries = new Set<string>();
 
   const step0Paths = collectStep0JsonPathsForCountryMerge({
-    outputDir,
+    outputBaseDir,
     country,
     mode,
   });
@@ -299,7 +324,7 @@ async function main(): Promise<void> {
 
   const enrichedPath = findLatestJsonOutput(
     [STEP1_OUTPUT_PREFIX, STEP2_OUTPUT_PREFIX, STEP3_OUTPUT_PREFIX],
-    { country, outputDir },
+    { country, outputDir: outputBaseDir },
   );
   if (enrichedPath) {
     console.log(`[merge] Loading enrichments from ${enrichedPath}`);
@@ -320,16 +345,18 @@ async function main(): Promise<void> {
     );
   }
 
+  const writeSlugsOnly = singleCitySlug ? [singleCitySlug] : undefined;
+
   const flushOutputs = async () => {
     const allAgencies = Array.from(existingByPlaceId.values());
     const { cityPaths, globalCsvPath } =
       await writeCanonicalEventAgenciesOutputs({
-        outputDir,
+        modeOutputDir,
         country,
-        mode,
         cities: allCities,
         variants: allVariants,
         allAgencies,
+        writeCitySlugsOnly: writeSlugsOnly,
       });
     console.log(
       `[csv]  Global -> ${globalCsvPath} (${allAgencies.length} row(s))`,
@@ -348,7 +375,8 @@ async function main(): Promise<void> {
     if (
       shouldSkipCity({
         refreshAll,
-        outputDir,
+        outputBaseDir,
+        modeOutputDir,
         country,
         mode,
         city,

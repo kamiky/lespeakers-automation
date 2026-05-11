@@ -6,6 +6,7 @@
 yarn scrape:event-agencies:step0 --country=fr
 yarn scrape:event-agencies:step0 --country=fr --prod
 yarn scrape:event-agencies:step0:prod --country=fr
+yarn scrape:event-agencies:step0 --country=fr --city=paris
 yarn scrape:event-agencies:step0 --country=fr --force
 ```
 
@@ -29,14 +30,14 @@ Récupère la liste brute des agences depuis Google Maps via Apify (actor
 | 4    | _à venir_ — email enrichment (Dropcontact)                   | -                                                                   | Dropcontact API     | $       | ⏳ à faire    |
 | 5    | _à venir_ — stockage (Supabase)                              | -                                                                   | -                   | -       | ⏳ à faire    |
 
-**Format de pipeline** : les steps **0, 1 et 2** réécrivent les **mêmes fichiers canoniques** (pas de timestamp dans les noms) :
+**Format de pipeline** : les steps **0 → 3** réécrivent les **mêmes fichiers canoniques** (pas de timestamp dans les noms), sous **`output/debug/`** ou **`output/prod/`** selon `--prod` :
 
-- **JSON par ville** : `output/scrape_event_agencies_<country>_<citySlug>_<mode>.json`
-- **CSV global** (toutes villes, toutes colonnes enrichies) : `output/scrape_event_agencies_<country>_<mode>.csv`
+- **JSON par ville** : `output/<debug|prod>/scrape_event_agencies_<country>_<citySlug>.json`
+- **CSV global** (toutes villes, toutes colonnes enrichies) : `output/<debug|prod>/scrape_event_agencies_<country>.csv`
 
 Les anciens fichiers `scrape_event_agencies_with_website_data_*` / `*_with_linkedin_search_*` avec timestamp restent **lisibles** au merge (migration) mais ne sont plus produits par défaut.
 
-**Fichiers monolithiques legacy (STEP 0)** : `output/scrape_event_agencies_<country>_<mode>_<timestamp>.json` (et variante `_<timestamp>_<citySlug>.json`) restent **lus** au merge et pour le skip par ville, puis la sortie est **normalisée** vers les noms canoniques ci-dessus.
+**Fichiers monolithiques legacy (STEP 0)** : `output/scrape_event_agencies_<country>_<mode>_<timestamp>.json` (et variante `_<timestamp>_<citySlug>.json`), ainsi que les anciens canoniques plats `output/scrape_event_agencies_<country>_<citySlug>_<mode>.json`, restent **lus** au merge et pour le skip par ville, puis la sortie est **normalisée** vers le dossier `debug/` ou `prod/`.
 
 ---
 
@@ -57,9 +58,9 @@ les deux fichiers.
    - tous les JSON canoniques **par ville** pour ce `country` + `mode` ;
    - éventuellement des JSON monolithiques legacy (timestamp) ;
    - le dernier JSON step **1 ou 2** « avec timestamp » pour ce pays (si présent) → migration / enrichissements.
-3. **Réécrit** tous les JSON par ville concernés + le **CSV global** (normalisation / migration).
+3. **Réécrit** les JSON par ville concernés + le **CSV global** (normalisation / migration). Avec `--city=…`, seul le JSON de cette ville est réécrit à chaque flush (le CSV reste **toutes villes**).
 4. Pour **chaque ville** planifiée :
-   - **Skip** la ville si `scrape_event_agencies_<country>_<citySlug>_<mode>.json` existe déjà (sauf `--force`).
+   - **Skip** la ville si `output/<mode>/scrape_event_agencies_<country>_<citySlug>.json` existe déjà (sauf `--force`).
    - Sinon, si seul un **legacy monolithique** existe : skip la ville seulement si **toutes** les requêtes `${variant} ${city}` sont déjà dans les `search_query` chargées.
    - Sinon : un run Apify pour cette ville uniquement.
    - **Dédup par `place_id`** sur l’état mémoire.
@@ -67,23 +68,27 @@ les deux fichiers.
 
 ## Modes
 
-- **Debug (défaut)** : 1 ville (Paris si dispo, sinon la première), 1 variante
-  (la première), max 10 résultats. Utile pour valider la chaîne sans cramer
-  de crédits.
-- **Prod** (`--prod`) : toutes les villes × toutes les variantes du pays,
-  max 50 résultats par recherche.
+- **Debug (défaut)** : dossier **`output/debug/`**, **toutes les villes** du pays (voir `cities.json`), **1 seule variante** (la première dans `event_agencies_variants.json`), **max 10 résultats par recherche** Google Maps (override avec `--max=`).
+- **Prod** (`--prod`) : dossier **`output/prod/`**, **toutes les villes** × **toutes les variantes**, **max 50 résultats par recherche** (override avec `--max=`).
 
-> **NB pour debug** : la 1re run debug écrit `scrape_event_agencies_fr_<parisSlug>_debug.json` + `scrape_event_agencies_fr_debug.csv`. Les runs suivants **skip** la ville si ce JSON existe — exit sans Apify. Pour re-scraper : `--force` ou supprimer ce fichier JSON.
+**Pagination / exhaustivité** : l’actor Apify reçoit `maxCrawledPlacesPerSearch` (= `--max` ou défaut ci-dessus). Ce n’est **pas** « toutes les fiches Maps possibles pour toujours » : c’est **un plafond par chaîne de recherche** (`${variante} ${ville}`). En prod avec plusieurs variantes, le plafond s’applique **à chaque** recherche (ex. 50 × N variantes par ville).
+
+> **NB** : sans `--city`, une 2ᵉ run **skip** les villes qui ont déjà un JSON canonique — exit sans Apify. Avec `--city=paris`, seule Paris est considérée. Pour tout re-scraper : `--force` ou supprimer les JSON concernés.
+
+### `--city=<nom>`
+
+Optionnel, **insensible à la casse** (`--city=paris` ≡ Paris). Limite les appels Apify et les réécritures JSON à **cette ville** ; le CSV pays inclut toujours l’ensemble des agences déjà en mémoire (autres villes inchangées sur disque si vous ne touchez qu’une ville).
 
 ## Paramètres CLI
 
 | Paramètre        | Obligatoire | Défaut                 | Description                                                                  |
 | ---------------- | ----------- | ---------------------- | ---------------------------------------------------------------------------- |
 | `--country=<cc>` | oui         | -                      | Code pays (`fr`, `en`, ...). Doit exister dans les deux JSON.                |
-| `--prod`         | non         | `false` (debug)        | Active le mode prod (toutes villes × toutes variantes).                      |
+| `--city=<nom>`   | non         | toutes les villes      | Une ville du `cities.json` (casse ignorée).                                  |
+| `--prod`         | non         | `false` (debug)        | Sortie sous `output/prod/` + toutes variantes + plafond 50/recherche.        |
 | `--force`        | non         | `false`                | Re-lance Apify pour **chaque** ville, même si un JSON par ville existe déjà. |
 | `--max=<n>`      | non         | `10` debug / `50` prod | Override du nombre max de résultats par recherche.                           |
-| `--output=<dir>` | non         | `automation/output`    | Répertoire de sortie (les noms de fichiers suivent la convention ci-dessus). |
+| `--output=<dir>` | non         | `automation/output`    | Racine des sorties ; les fichiers canoniques vont dans `<dir>/debug|prod/`.   |
 
 ## Variables d'environnement
 
@@ -122,13 +127,13 @@ npx tsx scripts/scrape_event_agencies/scrape_event_agencies_step0.ts --country=f
 
 ### JSON (par ville)
 
-`output/scrape_event_agencies_<country>_<citySlug>_<mode>.json`
+`output/<debug|prod>/scrape_event_agencies_<country>_<citySlug>.json`
 
 Tableau d’agences dont la `search_query` correspond à l’une des requêtes Maps pour cette ville (enrichi par les steps 1/2).
 
 ### CSV global
 
-`output/scrape_event_agencies_<country>_<mode>.csv`
+`output/<debug|prod>/scrape_event_agencies_<country>.csv`
 
 Une seule table **toutes villes confondues** (colonnes complètes après step 1/2), réécrite à chaque flush.
 
@@ -172,7 +177,7 @@ Apify facture **par place retournée**. Le script limite les coûts ainsi :
 
 ### Skip par ville (défaut)
 
-Si le fichier canonique **`scrape_event_agencies_<country>_<citySlug>_<mode>.json`** existe déjà, la ville est **ignorée** : pas d’appel Apify, pas de dépense.
+Si le fichier canonique **`output/<mode>/scrape_event_agencies_<country>_<citySlug>.json`** existe déjà (ou l’ancien plat `…_<citySlug>_<mode>.json` à la racine), la ville est **ignorée** : pas d’appel Apify, pas de dépense.
 
 Conséquence : si vous **ajoutez une nouvelle variante** de recherche dans `event_agencies_variants.json`, une ville déjà « figée » par son JSON ne prendra **pas** en compte la nouvelle variante tant que vous ne supprimez pas son JSON ou ne passez pas **`--force`**.
 
@@ -190,7 +195,7 @@ Quand Apify renvoie une agence déjà connue (`place_id`), on garde la version d
 
 ### STEP 1 — lecture des JSON step 0
 
-Sans `--input`, la step 1 **merge automatiquement** la partition step0 la plus récente (fichiers par ville + legacy) puis applique par-dessus le dernier JSON step 1/2 du même pays si besoin. Vous pouvez toujours pointer explicitement un seul JSON avec `--input=...`.
+Sans `--input`, la step 1 **merge** les JSON step0 du couple **`--country` + `--prod`/`debug`** sous `output/<mode>/`, puis applique par-dessus le dernier JSON step 1/2/3 « avec timestamp » du même pays si besoin. **`--country`** est obligatoire. Vous pouvez toujours pointer un seul JSON avec `--input=...`.
 
 ## Coûts Apify (ordre de grandeur)
 

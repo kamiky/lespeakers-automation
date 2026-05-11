@@ -2,10 +2,11 @@
  * Shared file-IO helpers for the automation pipeline.
  *
  * Event-agencies canonical files (no timestamps; scripts rewrite in place):
- *   scrape_event_agencies_<country>_<citySlug>_<mode>.json   — one JSON per city
- *   scrape_event_agencies_<country>_<mode>.csv              — one global CSV (all cities)
+ *   output/<debug|prod>/scrape_event_agencies_<country>_<citySlug>.json  — one JSON per city
+ *   output/<debug|prod>/scrape_event_agencies_<country>.csv             — one global CSV
  *
- * Legacy timestamped step0 / step1 / step2 files may still be read for migration.
+ * Legacy flat files (`scrape_event_agencies_*_*_debug.json` under `output/`, timestamped
+ * JSONs) remain readable for migration merges.
  */
 
 import * as fs from 'node:fs';
@@ -43,6 +44,11 @@ export function buildTimestamp(): string {
     .slice(0, 19);
 }
 
+/** `automation/output/debug` or `automation/output/prod` (plus optional custom base). */
+export function getModeOutputDir(outputBaseDir: string, mode: Mode): string {
+  return path.join(outputBaseDir, mode);
+}
+
 /**
  * Returns the base path (no extension) for a new output file.
  */
@@ -60,10 +66,6 @@ export function buildOutputBase(params: {
 /**
  * Returns true if `filename` matches our `<prefix>_<country>_<mode>_<ts>.json`
  * naming convention for the given prefix and (optional) country.
- *
- * This is stricter than a plain `startsWith(prefix + '_')` because step
- * prefixes are sub-prefixes of each other (e.g. "scrape_event_agencies" is
- * a prefix of "scrape_event_agencies_with_website_data").
  */
 function fileMatchesPrefix(
   filename: string,
@@ -79,14 +81,19 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function collectJsonSearchRoots(outputBaseDir: string): string[] {
+  const roots = new Set<string>();
+  if (fs.existsSync(outputBaseDir)) roots.add(outputBaseDir);
+  for (const m of ['debug', 'prod'] as const) {
+    const d = path.join(outputBaseDir, m);
+    if (fs.existsSync(d)) roots.add(d);
+  }
+  return [...roots];
+}
+
 /**
- * Find the most recent JSON file in /output matching one of the given prefixes
- * (using our `<prefix>_<country>_<mode>_<ts>.json` naming convention).
- *
- * Useful for "find the latest step 0 OR step 1 output" so a re-run picks the
- * freshest data automatically.
- *
- * If `options.country` is provided, only files for that country are considered.
+ * Find the most recent JSON under `output/` (root, `debug/`, `prod/`) matching
+ * `<prefix>_<country>_<mode>_<ts>.json`.
  */
 export function findLatestJsonOutput(
   prefixOrPrefixes: string | string[],
@@ -95,68 +102,69 @@ export function findLatestJsonOutput(
   const prefixes = Array.isArray(prefixOrPrefixes)
     ? prefixOrPrefixes
     : [prefixOrPrefixes];
-  const dir = options?.outputDir ?? OUTPUT_DIR;
-  if (!fs.existsSync(dir)) return null;
+  const outputBaseDir = options?.outputDir ?? OUTPUT_DIR;
   const country = options?.country;
-  const files = fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith('.json'))
-    .filter((f) => prefixes.some((p) => fileMatchesPrefix(f, p, country)))
-    .map((f) => ({
-      name: f,
-      mtime: fs.statSync(path.join(dir, f)).mtimeMs,
-    }))
-    .sort((a, b) => b.mtime - a.mtime);
-  return files.length > 0 ? path.join(dir, files[0].name) : null;
+  const files: { full: string; mtime: number }[] = [];
+  for (const dir of collectJsonSearchRoots(outputBaseDir)) {
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      if (!prefixes.some((p) => fileMatchesPrefix(name, p, country))) continue;
+      const full = path.join(dir, name);
+      files.push({ full, mtime: fs.statSync(full).mtimeMs });
+    }
+  }
+  files.sort((a, b) => b.mtime - a.mtime);
+  return files.length > 0 ? files[0].full : null;
 }
 
 /** Timestamp segment in legacy step0 filenames. */
 const STEP0_TS = String.raw`\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}`;
 
-/** Canonical per-city JSON: `scrape_event_agencies_<country>_<citySlug>_<mode>.json` */
-export function canonicalStep0CityJsonFilename(
-  country: string,
-  citySlug: string,
-  mode: Mode,
-): string {
-  return `scrape_event_agencies_${country}_${citySlug}_${mode}.json`;
+/** Canonical per-city JSON inside `output/<mode>/`. */
+export function canonicalStep0CityJsonFilename(country: string, citySlug: string): string {
+  return `scrape_event_agencies_${country}_${citySlug}.json`;
 }
 
-export function canonicalStep0GlobalCsvFilename(country: string, mode: Mode): string {
-  return `scrape_event_agencies_${country}_${mode}.csv`;
+export function canonicalStep0GlobalCsvFilename(country: string): string {
+  return `scrape_event_agencies_${country}.csv`;
 }
 
 export function getCanonicalStep0CityJsonPath(params: {
-  outputDir: string;
+  modeOutputDir: string;
   country: string;
   citySlug: string;
-  mode: Mode;
 }): string {
   return path.join(
-    params.outputDir,
-    canonicalStep0CityJsonFilename(params.country, params.citySlug, params.mode),
+    params.modeOutputDir,
+    canonicalStep0CityJsonFilename(params.country, params.citySlug),
   );
 }
 
 export function getCanonicalStep0GlobalCsvPath(params: {
-  outputDir: string;
+  modeOutputDir: string;
   country: string;
-  mode: Mode;
 }): string {
-  return path.join(params.outputDir, canonicalStep0GlobalCsvFilename(params.country, params.mode));
+  return path.join(params.modeOutputDir, canonicalStep0GlobalCsvFilename(params.country));
 }
 
 /**
- * Try to read country + mode from a filename (canonical city JSON, legacy timestamp JSON,
- * or other pipeline JSONs that end with `_<country>_<mode>_...`).
+ * Infer country + mode from a path (prefers parent folder `debug` / `prod` for new layout).
  */
-export function inferCountryAndModeFromFilename(filePath: string): {
+export function inferCountryAndModeFromPath(filePath: string): {
   country: string | null;
   mode: Mode | null;
 } {
   const base = path.basename(filePath, '.json');
-  const fixed = /^scrape_event_agencies_([a-z]{2,3})_([a-z0-9_-]+)_(debug|prod)$/;
-  const mf = base.match(fixed);
+  const parent = path.basename(path.dirname(filePath));
+
+  if (parent === 'debug' || parent === 'prod') {
+    const mode = parent as Mode;
+    const mNew = base.match(/^scrape_event_agencies_([a-z]{2,3})_([a-z0-9_-]+)$/);
+    if (mNew) return { country: mNew[1], mode };
+  }
+
+  const oldFixed = /^scrape_event_agencies_([a-z]{2,3})_([a-z0-9_-]+)_(debug|prod)$/;
+  const mf = base.match(oldFixed);
   if (mf) return { country: mf[1], mode: mf[3] as Mode };
 
   const legacy = new RegExp(`_([a-z]{2,3})_(debug|prod)_(${STEP0_TS})(?:_[a-z0-9_-]+)?$`);
@@ -166,7 +174,15 @@ export function inferCountryAndModeFromFilename(filePath: string): {
   return { country: null, mode: null };
 }
 
-/** URL-safe slug from a config city label (used in step0 per-city JSON names). */
+/** @deprecated Use inferCountryAndModeFromPath (same behavior: accepts full path). */
+export function inferCountryAndModeFromFilename(filePath: string): {
+  country: string | null;
+  mode: Mode | null;
+} {
+  return inferCountryAndModeFromPath(filePath);
+}
+
+/** URL-safe slug from a config city label (used in per-city JSON names). */
 export function slugifyCityForFilename(city: string): string {
   const s = city
     .normalize('NFD')
@@ -177,26 +193,58 @@ export function slugifyCityForFilename(city: string): string {
   return s.length > 0 ? s : 'city';
 }
 
+/** Match CLI `--city=paris` to the canonical label from `cities.json` (case-insensitive). */
+export function resolveCityFromCliArg(cities: string[], cityArg: string): string {
+  const trimmed = cityArg.trim();
+  if (!trimmed) {
+    throw new Error('Empty --city value.');
+  }
+  const lower = trimmed.toLowerCase();
+  const slugArg = slugifyCityForFilename(trimmed);
+  for (const c of cities) {
+    if (c.toLowerCase() === lower) return c;
+    if (slugifyCityForFilename(c) === slugArg) return c;
+  }
+  throw new Error(
+    `City "${trimmed}" not found for this country. Known cities: ${cities.join(', ')}`,
+  );
+}
+
 /**
- * All step0 JSON paths to merge for a country/mode: canonical per-city files,
- * plus legacy timestamped monolithic / per-city (newest per slug only).
+ * All step0 JSON paths to merge for a country/mode: canonical per-city files under
+ * `output/<mode>/`, legacy flat old names + timestamped files under `output/`.
  */
 export function collectStep0JsonPathsForCountryMerge(params: {
-  outputDir: string;
+  outputBaseDir: string;
   country: string;
   mode: Mode;
 }): string[] {
-  const { outputDir, country, mode } = params;
-  if (!fs.existsSync(outputDir)) return [];
-
+  const { outputBaseDir, country, mode } = params;
   const out: string[] = [];
-  const fixedRe = new RegExp(
+
+  const modeDir = getModeOutputDir(outputBaseDir, mode);
+  if (fs.existsSync(modeDir)) {
+    const fixedRe = new RegExp(
+      `^scrape_event_agencies_${escapeRegex(country)}_([a-z0-9_-]+)\\.json$`,
+    );
+    for (const name of fs.readdirSync(modeDir)) {
+      if (!name.endsWith('.json')) continue;
+      if (name.startsWith('scrape_event_agencies_with_')) continue;
+      if (fixedRe.test(name)) {
+        out.push(path.join(modeDir, name));
+      }
+    }
+  }
+
+  if (!fs.existsSync(outputBaseDir)) return out;
+
+  const legacyOldCanonical = new RegExp(
     `^scrape_event_agencies_${escapeRegex(country)}_([a-z0-9_-]+)_${mode}\\.json$`,
   );
-  for (const name of fs.readdirSync(outputDir)) {
+  for (const name of fs.readdirSync(outputBaseDir)) {
     if (!name.endsWith('.json')) continue;
-    if (fixedRe.test(name)) {
-      out.push(path.join(outputDir, name));
+    if (legacyOldCanonical.test(name)) {
+      out.push(path.join(outputBaseDir, name));
     }
   }
 
@@ -210,9 +258,9 @@ export function collectStep0JsonPathsForCountryMerge(params: {
   const legacyCityBySlug = new Map<string, { path: string; mtime: number }>();
   let legacyMonoBest: { path: string; mtime: number } | null = null;
 
-  for (const name of fs.readdirSync(outputDir)) {
+  for (const name of fs.readdirSync(outputBaseDir)) {
     if (!name.endsWith('.json')) continue;
-    const full = path.join(outputDir, name);
+    const full = path.join(outputBaseDir, name);
     const st = fs.statSync(full);
     const mc = name.match(legacyCityRe);
     if (mc) {
@@ -239,26 +287,46 @@ export function collectStep0JsonPathsForCountryMerge(params: {
 }
 
 export function hasDedicatedStep0JsonForCity(params: {
-  outputDir: string;
+  outputBaseDir: string;
+  modeOutputDir: string;
   country: string;
   mode: Mode;
   citySlug: string;
 }): boolean {
-  return fs.existsSync(
-    getCanonicalStep0CityJsonPath({
-      outputDir: params.outputDir,
-      country: params.country,
-      citySlug: params.citySlug,
-      mode: params.mode,
-    }),
+  const newPath = getCanonicalStep0CityJsonPath({
+    modeOutputDir: params.modeOutputDir,
+    country: params.country,
+    citySlug: params.citySlug,
+  });
+  if (fs.existsSync(newPath)) return true;
+  const legacyFlat = path.join(
+    params.outputBaseDir,
+    `scrape_event_agencies_${params.country}_${params.citySlug}_${params.mode}.json`,
   );
+  return fs.existsSync(legacyFlat);
 }
 
-function parseStep0JsonPartitionKey(
-  filename: string,
-): { key: string; country: string; mode: Mode } | null {
-  const fixed = /^scrape_event_agencies_([a-z]{2,3})_([a-z0-9_-]+)_(debug|prod)\.json$/;
-  const mf = filename.match(fixed);
+function parseNewLayoutStep0Partition(fullPath: string): {
+  key: string;
+  country: string;
+  mode: Mode;
+} | null {
+  const parent = path.basename(path.dirname(fullPath));
+  if (parent !== 'debug' && parent !== 'prod') return null;
+  const name = path.basename(fullPath);
+  const m = name.match(/^scrape_event_agencies_([a-z]{2,3})_([a-z0-9_-]+)\.json$/);
+  if (!m) return null;
+  const mode = parent as Mode;
+  return { key: `${m[1]}/${mode}`, country: m[1], mode };
+}
+
+function parseLegacyFlatStep0Partition(filename: string): {
+  key: string;
+  country: string;
+  mode: Mode;
+} | null {
+  const oldFixed = /^scrape_event_agencies_([a-z]{2,3})_([a-z0-9_-]+)_(debug|prod)\.json$/;
+  const mf = filename.match(oldFixed);
   if (mf) {
     return { key: `${mf[1]}/${mf[3]}`, country: mf[1], mode: mf[3] as Mode };
   }
@@ -285,27 +353,50 @@ export function loadLatestStep0PartitionMerged(params?: {
   country: string | null;
   mode: Mode | null;
 } {
-  const outputDir = params?.outputDir ?? OUTPUT_DIR;
-  if (!fs.existsSync(outputDir)) {
+  const outputBaseDir = params?.outputDir ?? OUTPUT_DIR;
+  if (!fs.existsSync(outputBaseDir)) {
     return { agencies: [], sourcePaths: [], representativePath: null, country: null, mode: null };
   }
 
   const partitionFiles = new Map<string, { paths: string[]; maxMtime: number }>();
 
-  for (const name of fs.readdirSync(outputDir)) {
-    if (!name.endsWith('.json')) continue;
-    if (!name.startsWith('scrape_event_agencies_')) continue;
-    if (name.startsWith('scrape_event_agencies_with_')) continue;
-    const parsed = parseStep0JsonPartitionKey(name);
-    if (!parsed) continue;
-    const full = path.join(outputDir, name);
-    const mt = fs.statSync(full).mtimeMs;
-    const g = partitionFiles.get(parsed.key);
-    if (!g) {
-      partitionFiles.set(parsed.key, { paths: [full], maxMtime: mt });
-    } else {
-      g.paths.push(full);
-      if (mt > g.maxMtime) g.maxMtime = mt;
+  for (const mode of ['debug', 'prod'] as const) {
+    const d = path.join(outputBaseDir, mode);
+    if (!fs.existsSync(d)) continue;
+    for (const name of fs.readdirSync(d)) {
+      if (!name.endsWith('.json')) continue;
+      if (!name.startsWith('scrape_event_agencies_')) continue;
+      if (name.startsWith('scrape_event_agencies_with_')) continue;
+      const full = path.join(d, name);
+      const parsed = parseNewLayoutStep0Partition(full);
+      if (!parsed) continue;
+      const mt = fs.statSync(full).mtimeMs;
+      const g = partitionFiles.get(parsed.key);
+      if (!g) {
+        partitionFiles.set(parsed.key, { paths: [full], maxMtime: mt });
+      } else {
+        g.paths.push(full);
+        if (mt > g.maxMtime) g.maxMtime = mt;
+      }
+    }
+  }
+
+  if (fs.existsSync(outputBaseDir)) {
+    for (const name of fs.readdirSync(outputBaseDir)) {
+      if (!name.endsWith('.json')) continue;
+      if (!name.startsWith('scrape_event_agencies_')) continue;
+      if (name.startsWith('scrape_event_agencies_with_')) continue;
+      const parsed = parseLegacyFlatStep0Partition(name);
+      if (!parsed) continue;
+      const full = path.join(outputBaseDir, name);
+      const mt = fs.statSync(full).mtimeMs;
+      const g = partitionFiles.get(parsed.key);
+      if (!g) {
+        partitionFiles.set(parsed.key, { paths: [full], maxMtime: mt });
+      } else {
+        g.paths.push(full);
+        if (mt > g.maxMtime) g.maxMtime = mt;
+      }
     }
   }
 
@@ -324,7 +415,7 @@ export function loadLatestStep0PartitionMerged(params?: {
 
   const [country, mode] = bestKey.split('/') as [string, Mode];
   const sourcePaths = collectStep0JsonPathsForCountryMerge({
-    outputDir,
+    outputBaseDir,
     country,
     mode,
   });
@@ -338,6 +429,27 @@ export function loadLatestStep0PartitionMerged(params?: {
       : null;
 
   return { agencies, sourcePaths, representativePath, country, mode };
+}
+
+/** Merge all step0 JSON for a given country/mode (under `output/<mode>/` + legacy flat). */
+export function loadStep0PartitionMergedForCountry(params: {
+  outputBaseDir: string;
+  country: string;
+  mode: Mode;
+}): {
+  agencies: Agency[];
+  sourcePaths: string[];
+  representativePath: string | null;
+} {
+  const sourcePaths = collectStep0JsonPathsForCountryMerge(params);
+  const agencies = mergeAgencyArraysFromPaths(sourcePaths);
+  const representativePath =
+    sourcePaths.length > 0
+      ? sourcePaths.reduce((a, b) =>
+          fs.statSync(a).mtimeMs >= fs.statSync(b).mtimeMs ? a : b,
+        )
+      : null;
+  return { agencies, sourcePaths, representativePath };
 }
 
 export function loadAgenciesFromJson(filePath: string): Agency[] {
@@ -440,14 +552,15 @@ export function agencyToPipelineCsvRow(a: Agency): Record<string, unknown> {
 
 /**
  * Rewrite canonical per-city JSONs (only slugs with ≥1 row) + global CSV.
+ * Pass `writeCitySlugsOnly` to touch only those city JSON files (CSV is always full `allAgencies`).
  */
 export async function writeCanonicalEventAgenciesOutputs(params: {
-  outputDir: string;
+  modeOutputDir: string;
   country: string;
-  mode: Mode;
   cities: string[];
   variants: string[];
   allAgencies: Agency[];
+  writeCitySlugsOnly?: string[];
 }): Promise<{ cityPaths: string[]; globalCsvPath: string }> {
   const withCompany = (a: Agency): Agency => ({
     ...a,
@@ -461,14 +574,15 @@ export async function writeCanonicalEventAgenciesOutputs(params: {
   });
   const queryMap = buildSearchQueryToCitySlugMap(params.cities, params.variants);
   const bySlug = partitionAgenciesByCitySlug(params.allAgencies, queryMap);
+  const restrict = params.writeCitySlugsOnly;
   const cityPaths: string[] = [];
   for (const [slug, rows] of bySlug) {
     if (rows.length === 0) continue;
+    if (restrict && !restrict.includes(slug)) continue;
     const p = getCanonicalStep0CityJsonPath({
-      outputDir: params.outputDir,
+      modeOutputDir: params.modeOutputDir,
       country: params.country,
       citySlug: slug,
-      mode: params.mode,
     });
     writeJson(
       p,
@@ -480,9 +594,8 @@ export async function writeCanonicalEventAgenciesOutputs(params: {
     cityPaths.push(p);
   }
   const globalCsvPath = getCanonicalStep0GlobalCsvPath({
-    outputDir: params.outputDir,
+    modeOutputDir: params.modeOutputDir,
     country: params.country,
-    mode: params.mode,
   });
   const rows = params.allAgencies.map((a) => ({
     ...withCompany(a),

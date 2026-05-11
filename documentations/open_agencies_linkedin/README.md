@@ -24,19 +24,19 @@ ton outreach et de pouvoir reprendre là où tu t'étais arrêté.
 
 ```bash
 # Cas standard : on bosse sur le fichier produit par step 3.
-yarn outreach:linkedin --input=./output/scrape_event_agencies_fr_paris_debug.json
+yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json
 
 # Reprendre à partir de la 10e agence (1-indexed).
-yarn outreach:linkedin --input=./output/scrape_event_agencies_fr_paris_debug.json --start=10
+yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --start=10
 
 # Ne traiter que les 5 prochaines agences.
-yarn outreach:linkedin --input=./output/scrape_event_agencies_fr_paris_debug.json --limit=5
+yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --limit=5
 
 # Re-poser la question pour les rows déjà traitées.
-yarn outreach:linkedin --input=./output/scrape_event_agencies_fr_paris_debug.json --force
+yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --force
 
 # Re-poser uniquement pour les rows que j'avais skipped.
-yarn outreach:linkedin --input=./output/scrape_event_agencies_fr_paris_debug.json --include-skipped
+yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --include-skipped
 
 # Ouvrir avec mon navigateur par défaut au lieu de Chrome.
 yarn outreach:linkedin --input=./output/...json --use-default-browser

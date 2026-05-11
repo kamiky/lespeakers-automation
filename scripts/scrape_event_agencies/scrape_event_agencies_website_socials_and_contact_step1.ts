@@ -2,24 +2,29 @@
  * scrape_event_agencies_website_socials_and_contact_step1.ts
  *
  * EXAMPLES (run from the `automation/` directory — same cwd as `yarn`):
- *   yarn scrape:event-agencies:step1
- *   yarn scrape:event-agencies:step1 --force --limit=20
+ *   yarn scrape:event-agencies:step1 --country=fr
+ *   yarn scrape:event-agencies:step1 --country=fr --prod
+ *   yarn scrape:event-agencies:step1 --country=fr --city=paris
+ *   yarn scrape:event-agencies:step1 --country=fr --force --limit=20
  *   yarn scrape:event-agencies:step1 --debug-url=https://example.com/path
  *   yarn scrape:event-agencies:step1 --apify-when-block --limit=10
  *
  * STEP 1 — scrape agency websites for LinkedIn, emails, and social profiles (Facebook,
  * Instagram, X/Twitter, TikTok).
- * Rewrites canonical pipeline files:
- *   scrape_event_agencies_<country>_<citySlug>_<mode>.json
- *   scrape_event_agencies_<country>_<mode>.csv
+ * Rewrites canonical pipeline files under `output/<debug|prod>/`:
+ *   scrape_event_agencies_<country>_<citySlug>.json
+ *   scrape_event_agencies_<country>.csv
  *
  * --------------------------------------------------------------------------
  * PARAMETERS
  * --------------------------------------------------------------------------
+ *   --country=<code>   (required except with --debug-url)  e.g. fr
+ *   --city=<name>      (optional)  Only agencies for this city (case-insensitive).
+ *   --prod             (optional)  Read/write `output/prod/` (default: `output/debug/`).
  *   --debug-url=<url>  (optional)  Scrape only this URL, verbose logs, JSON result to stdout;
  *                                  no pipeline files written.
- *   --input=<path>     (optional)  Single JSON instead of merged canonical inputs.
- *   --output=<dir>     (optional)  Directory for canonical files (default: automation/output).
+ *   --input=<path>     (optional)  Single JSON instead of merged step0 inputs.
+ *   --output=<dir>     (optional)  Output base directory (default: automation/output).
  *   --force            (optional)  Re-process every agency.
  *   --limit=<n>        (optional)  Cap agencies processed this run.
  *   --concurrency=<n>  (optional)  Parallel HTTP limit (default 5).
@@ -44,11 +49,14 @@ import {
 import { withConcurrency } from '../../src/utils/concurrency.js';
 import {
   OUTPUT_DIR,
+  buildSearchQueryToCitySlugMap,
   findLatestJsonOutput,
-  inferCountryAndModeFromFilename,
+  getModeOutputDir,
   loadAgenciesFromJson,
-  loadLatestStep0PartitionMerged,
+  loadStep0PartitionMergedForCountry,
   mergeAgenciesByPlaceIdPreferOverlay,
+  resolveCityFromCliArg,
+  slugifyCityForFilename,
   writeCanonicalEventAgenciesOutputs,
 } from '../../src/utils/output.js';
 import { scrapeWebsiteForSocialsAndContact } from '../../src/utils/website_scraper.js';
@@ -115,17 +123,32 @@ async function main(): Promise<void> {
     return;
   }
 
+  const country = getStringArg(args, 'country')?.toLowerCase();
+  if (!country) {
+    throw new Error('Missing required parameter --country=<code>. Example: --country=fr');
+  }
+
   const force = getBoolArg(args, 'force');
   const apifyWhenBlocked = getApifyWhenBlockedFlag(args);
   const limit = getIntArg(args, 'limit');
   const concurrency = getIntArg(args, 'concurrency') ?? DEFAULT_CONCURRENCY;
   const inputOverride = getStringArg(args, 'input');
   const outputOverride = getStringArg(args, 'output');
+  const cityArg = getStringArg(args, 'city');
+  const isProd = getBoolArg(args, 'prod');
+  const mode = isProd ? 'prod' : 'debug';
 
-  const outputDir = outputOverride ? path.resolve(process.cwd(), outputOverride) : OUTPUT_DIR;
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
+  const outputBaseDir = outputOverride ? path.resolve(process.cwd(), outputOverride) : OUTPUT_DIR;
+  if (!fs.existsSync(outputBaseDir)) {
+    fs.mkdirSync(outputBaseDir, { recursive: true });
   }
+  const modeOutputDir = getModeOutputDir(outputBaseDir, mode);
+
+  const { cities: allCities, variants: allVariants } = loadCitiesAndVariants(country);
+  const queryToSlug = buildSearchQueryToCitySlugMap(allCities, allVariants);
+  const citySlugFilter = cityArg
+    ? slugifyCityForFilename(resolveCityFromCliArg(allCities, cityArg))
+    : undefined;
 
   let inputPath: string;
   let allAgencies: Agency[];
@@ -135,36 +158,39 @@ async function main(): Promise<void> {
     console.log(`[input] Loading agencies from ${inputPath}`);
     allAgencies = loadAgenciesFromJson(inputPath);
   } else {
-    const merged = loadLatestStep0PartitionMerged({ outputDir });
+    const merged = loadStep0PartitionMergedForCountry({
+      outputBaseDir,
+      country,
+      mode,
+    });
     if (merged.agencies.length > 0) {
       allAgencies = merged.agencies;
       inputPath = merged.representativePath ?? merged.sourcePaths[0] ?? '';
       console.log(
-        `[input] Merged step0 partition ${merged.country}/${merged.mode} from ${merged.sourcePaths.length} file(s) -> ${allAgencies.length} agencies.`,
+        `[input] Merged step0 partition ${country}/${mode} from ${merged.sourcePaths.length} file(s) -> ${allAgencies.length} agencies.`,
       );
       merged.sourcePaths.forEach((p) => console.log(`       ${p}`));
-      if (merged.country) {
-        const enrichPath = findLatestJsonOutput(
-          [OUTPUT_PREFIX, STEP2_OUTPUT_PREFIX, STEP3_OUTPUT_PREFIX],
-          { country: merged.country, outputDir },
-        );
-        if (enrichPath) {
-          const overlay = loadAgenciesFromJson(enrichPath);
-          allAgencies = mergeAgenciesByPlaceIdPreferOverlay(allAgencies, overlay);
-          const step0Mtime = inputPath && fs.existsSync(inputPath) ? fs.statSync(inputPath).mtimeMs : 0;
-          if (fs.statSync(enrichPath).mtimeMs > step0Mtime) {
-            inputPath = enrichPath;
-          }
-          console.log(`[input] Overlay legacy enrichments from ${enrichPath}`);
+      const enrichPath = findLatestJsonOutput(
+        [OUTPUT_PREFIX, STEP2_OUTPUT_PREFIX, STEP3_OUTPUT_PREFIX],
+        { country, outputDir: outputBaseDir },
+      );
+      if (enrichPath) {
+        const overlay = loadAgenciesFromJson(enrichPath);
+        allAgencies = mergeAgenciesByPlaceIdPreferOverlay(allAgencies, overlay);
+        const step0Mtime = inputPath && fs.existsSync(inputPath) ? fs.statSync(inputPath).mtimeMs : 0;
+        if (fs.statSync(enrichPath).mtimeMs > step0Mtime) {
+          inputPath = enrichPath;
         }
+        console.log(`[input] Overlay legacy enrichments from ${enrichPath}`);
       }
     } else {
       const fallback = findLatestJsonOutput([STEP0_OUTPUT_PREFIX, OUTPUT_PREFIX], {
-        outputDir,
+        country,
+        outputDir: outputBaseDir,
       });
       if (!fallback) {
         throw new Error(
-          `No input found. Pass --input=<path> or run scripts/scrape_event_agencies/scrape_event_agencies_step0.ts (yarn scrape:event-agencies:step0) first.`,
+          `No input found for ${country}/${mode}. Pass --input=<path> or run scrape_event_agencies_step0 first.`,
         );
       }
       inputPath = fallback;
@@ -176,8 +202,16 @@ async function main(): Promise<void> {
   console.log(`[input] Loaded ${allAgencies.length} agencies.`);
 
   let pending = allAgencies.filter((a) => force || effectiveProcessedStep(a) < 1);
+  if (citySlugFilter) {
+    pending = pending.filter(
+      (a) => queryToSlug.get(a.search_query?.trim() ?? '') === citySlugFilter,
+    );
+    console.log(
+      `[city] Restricting work to slug "${citySlugFilter}" (${pending.length} pending of ${allAgencies.length} total).`,
+    );
+  }
   const skipped = allAgencies.length - pending.length;
-  if (skipped > 0) {
+  if (skipped > 0 && !citySlugFilter) {
     console.log(
       `[skip] ${skipped} agency(ies) already processed (use --force to re-run all).`,
     );
@@ -273,26 +307,13 @@ async function main(): Promise<void> {
     console.log(`[stats] Still unprocessed: ${stillUnprocessed} (likely --limit'd; re-run to continue).`);
   }
 
-  const inferred = inferCountryAndModeFromFilename(inputPath);
-  let country = inferred.country;
-  const mode = inferred.mode ?? 'debug';
-  if (!country && finalAgencies[0]?.country_code) {
-    country = finalAgencies[0].country_code.toLowerCase().slice(0, 2);
-  }
-  if (!country) {
-    throw new Error(
-      'Could not infer country from input path or agencies[].country_code; use a canonical filename or set country_code on rows.',
-    );
-  }
-
-  const { cities: allCities, variants: allVariants } = loadCitiesAndVariants(country);
   const { cityPaths, globalCsvPath } = await writeCanonicalEventAgenciesOutputs({
-    outputDir,
+    modeOutputDir,
     country,
-    mode,
     cities: allCities,
     variants: allVariants,
     allAgencies: finalAgencies,
+    writeCitySlugsOnly: citySlugFilter ? [citySlugFilter] : undefined,
   });
 
   console.log(`[csv]  ${globalCsvPath} (${finalAgencies.length} row(s))`);

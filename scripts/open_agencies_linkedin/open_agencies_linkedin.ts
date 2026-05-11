@@ -2,11 +2,11 @@
  * open_agencies_linkedin.ts
  *
  * EXAMPLES (from `automation/`):
- *   yarn outreach:linkedin --input=./output/scrape_event_agencies_fr_paris_debug.json
- *   yarn outreach:linkedin --input=./output/scrape_event_agencies_fr_paris_debug.json --start=10
- *   yarn outreach:linkedin --input=./output/scrape_event_agencies_fr_paris_debug.json --limit=5
- *   yarn outreach:linkedin --input=./output/scrape_event_agencies_fr_paris_debug.json --force
- *   yarn outreach:linkedin --input=./output/scrape_event_agencies_fr_paris_debug.json --use-default-browser
+ *   yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json
+ *   yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --start=10
+ *   yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --limit=5
+ *   yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --force
+ *   yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --use-default-browser
  *
  * Manual LinkedIn outreach loop (no API). For each agency in the input JSON:
  *   1. Show the agency name + company LinkedIn URL, prompt YES/NO to open it

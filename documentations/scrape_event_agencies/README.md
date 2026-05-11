@@ -8,17 +8,16 @@ Toutes les commandes ci-dessous supposent le répertoire **`automation/`** (où 
 yarn scrape:event-agencies:step0 --country=fr
 yarn scrape:event-agencies:step0 --country=fr --prod
 yarn scrape:event-agencies:step0:prod --country=fr
-yarn scrape:event-agencies:step1
+yarn scrape:event-agencies:step0 --country=fr --city=paris
+yarn scrape:event-agencies:step1 --country=fr
 yarn scrape:event-agencies:step1 --debug-url=https://example.com/ --apify-when-block
-yarn scrape:event-agencies:step2
-yarn scrape:event-agencies:step2 --force --limit=20
-yarn scrape:event-agencies:step3
-yarn scrape:event-agencies:step3 --force --limit=10
+yarn scrape:event-agencies:step2 --country=fr --force --limit=20
+yarn scrape:event-agencies:step3 --country=fr --force --limit=10
 ```
 
 Pipeline d'enrichissement de la base d'**agences événementielles** par pays.
 Chaque step lit le **JSON** produit par la précédente, l'enrichit, et écrit
-un nouveau **JSON + CSV** dans `output/`. Les outputs sont chaînés via
+un **JSON par ville** + **CSV pays** dans `output/debug/` ou `output/prod/`. Les outputs sont chaînés via
 l'identifiant unique `place_id` (Google).
 
 > Plan d'origine : [`action_plan.md`](../action_plan.md) · nettoyage employees : [`employees_cleanup_action_plan.md`](./employees_cleanup_action_plan.md)
@@ -44,21 +43,23 @@ Voir aussi **§ Exemples yarn** en tête de ce fichier pour la liste condensée 
 yarn install
 cp .env.example .env   # puis ajouter APIFY_TOKEN
 
-yarn scrape:event-agencies:step0 --country=fr     # debug (1 ville, 1 variante, 10 résultats)
-yarn scrape:event-agencies:step1                  # traite ce que step 0 a sorti
-yarn scrape:event-agencies:step2                  # traite ce que step 1 a sorti
+yarn scrape:event-agencies:step0 --country=fr     # output/debug/ — toutes les villes, 1 variante, max 10 résultats/recherche
+yarn scrape:event-agencies:step1 --country=fr     # lit output/debug/, réécrit les mêmes fichiers canoniques
+yarn scrape:event-agencies:step2 --country=fr
 ```
 
 En prod :
 
 ```bash
-yarn scrape:event-agencies:step0 --country=fr --prod    # toutes villes x toutes variantes
-yarn scrape:event-agencies:step1                        # idem qu'en debug, traite tout l'input
-yarn scrape:event-agencies:step2                        # idem qu'en debug, traite tout l'input
+yarn scrape:event-agencies:step0 --country=fr --prod    # output/prod/ — toutes villes × toutes variantes, max 50/recherche
+yarn scrape:event-agencies:step1 --country=fr --prod
+yarn scrape:event-agencies:step2 --country=fr --prod
 ```
 
-> Le scope **debug / prod est choisi UNE SEULE fois à la step 0**. Les step 1
-> et 2 traitent simplement ce qu'il y a dans leur input.
+> Chaque step prend **`--prod`** (ou pas) pour choisir le dossier `output/prod/`
+> vs `output/debug/`. **`--country`** est obligatoire sur les steps 0–3 (sauf
+> `--debug-url` sur la step 1). **`--city=paris`** (insensible à la casse) ne
+> traite / ne réécrit que le JSON de cette ville (+ le CSV pays complet).
 
 ## Idempotent / resumable
 
@@ -79,20 +80,23 @@ yarn scrape:event-agencies:step2                        # idem qu'en debug, trai
 
 Flags utiles :
 
-| Flag      | Step 0                                               | Step 1                                                 | Step 2                                                             |
-| --------- | ---------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------ |
-| `--force` | Re-lance toutes les requêtes (même les déjà-connues) | -                                                      | -                                                                  |
-| `--force` | -                                                    | Retraite tout (utile pour retenter http_error/timeout) | Retente aussi les `not_found` (utile après tweak de `--threshold`) |
-| `--limit` | -                                                    | Cap sur le nb d'agences traitées dans CE run           | Cap sur le nb d'agences traitées dans CE run                       |
-| `--input` | -                                                    | Override le fichier d'entrée                           | Override le fichier d'entrée                                       |
+| Flag        | Step 0                         | Step 1 / 2 / 3                                              |
+| ----------- | ------------------------------ | ----------------------------------------------------------- |
+| `--country` | obligatoire                    | obligatoire (sauf `--debug-url` step 1)                     |
+| `--city`    | optionnel (une ville)          | optionnel : ne traite / ne réécrit que le JSON de la ville |
+| `--prod`    | `output/prod/` + caps / variantes | idem : dossier prod vs debug                             |
+| `--force`   | Re-lance Apify ville par ville | Retraite les agences concernées                             |
+| `--limit`   | -                              | Cap sur le nb d'agences traitées dans CE run               |
+| `--input`   | -                              | Override le fichier d'entrée                               |
 
 ## Naming des fichiers de sortie
 
+Fichiers **canoniques** (réécrits par les steps 0 → 3, sans timestamp) :
+
 ```text
-output/scrape_event_agencies_<country>_<mode>_<ts>.{json,csv}                          # STEP 0
-output/scrape_event_agencies_with_website_data_<country>_<mode>_<ts>.{json,csv}        # STEP 1
-output/scrape_event_agencies_with_linkedin_search_<country>_<mode>_<ts>.{json,csv}     # STEP 2
+output/debug/scrape_event_agencies_<country>_<citySlug>.json   # ou output/prod/… si --prod
+output/debug/scrape_event_agencies_<country>.csv
 ```
 
-`<country>` et `<mode>` sont décidés à la STEP 0 et **propagés** par les steps suivantes
-(inférés depuis le nom du fichier d'input).
+Anciens fichiers avec timestamp (`scrape_event_agencies_with_website_data_*`, step0 monolithiques, etc.)
+restent **lisibles** au merge quand ils sont encore dans `output/` (racine ou sous-dossiers).

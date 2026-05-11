@@ -3,10 +3,12 @@
 ## Exemples yarn (`automation/`)
 
 ```bash
-yarn scrape:event-agencies:step3
-yarn scrape:event-agencies:step3 --force --limit=10
-yarn scrape:event-agencies:step3 --input=./output/scrape_event_agencies_fr_paris_debug.json
-yarn scrape:event-agencies:step3 --max-employees=5
+yarn scrape:event-agencies:step3 --country=fr
+yarn scrape:event-agencies:step3 --country=fr --prod
+yarn scrape:event-agencies:step3 --country=fr --city=paris
+yarn scrape:event-agencies:step3 --country=fr --force --limit=10
+yarn scrape:event-agencies:step3 --input=./output/debug/scrape_event_agencies_fr_paris.json
+yarn scrape:event-agencies:step3 --country=fr --max-employees=5
 ```
 
 **STEP 3** du pipeline. Lit les JSON canoniques (même mécanisme que la
@@ -53,6 +55,9 @@ Pas de guillemets dans la requête : même logique qu’une recherche manuelle d
 
 | Paramètre | Description |
 |-------------|-------------|
+| `--country=<cc>` | **Obligatoire.** Pays, ex. `fr`. |
+| `--city=<nom>` | Optionnel ; casse ignorée ; une seule ville traitée / JSON réécrit. |
+| `--prod` | `output/prod/` au lieu de `output/debug/`. |
 | `--force` | Retraiter toutes les agences (y compris déjà en step 3). |
 | `--limit=<n>` | Plafond d’agences pour ce run. |
 | `--max-employees=<n>` | Max de lignes `employees` par agence (défaut **8**, max **50**). |
