@@ -1,16 +1,4 @@
 {
-  "fr": [
-    "agence événementielle",
-    "communication événementielle",
-    "organisation événement",
-    "agence événement corporate",
-    "agence séminaire entreprise"
-  ],
-  "en": [
-    "event agency",
-    "corporate event agency",
-    "event planner",
-    "event management agency",
-    "luxury event agency"
-  ]
+  "fr": ["agence événementielle"],
+  "en": ["event agency"]
 }
