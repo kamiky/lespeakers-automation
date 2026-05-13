@@ -1,0 +1,53 @@
+Ville de france :
+Paris
+Lyon
+Marseille
+Bordeaux
+Lille
+Nantes
+Toulouse
+Nice
+Cannes
+Monaco
+Montpellier
+Strasbourg
+Rennes
+Aix-en-Provence
+Annecy
+La Rochelle
+Deauville
+Biarritz
+Grenoble
+Reims
+
+Villes d'ile de france ?
+
+Boulogne
+...
+
+Variantes :
+agence événementielle [VILLE]
+communication événementielle [VILLE]
+organisation événement [VILLE]
+agence événement corporate [VILLE]
+agence séminaire entreprise [VILLE]
+agence incentive [VILLE]
+
+event agency [VILLE]
+corporate event agency [VILLE]
+event planner [VILLE]
+event management agency [VILLE]
+luxury event agency [VILLE]
+
+______________________________________________
+
+Exemple : Deal4Event
+
+Google : site:linkedin.com Deal4event
+linkedin : https://fr.linkedin.com/company/deal4event
+
+Liste de salariés : https://www.linkedin.com/company/deal4event/people/
+
+Google results :
+https://fr.linkedin.com/in/florian-dermit-803a6412a
+https://fr.linkedin.com/in/stuart-dartiguelongue/en

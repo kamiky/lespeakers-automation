@@ -2,9 +2,10 @@
 
 Boucle interactive **post-pipeline** : on prend le JSON enrichi par
 [`scrape_event_agencies` (steps 0→3)](../scrape_event_agencies/README.md) et,
-pour chaque agence, on **ouvre le LinkedIn entreprise** puis chaque
-**LinkedIn employé** dans Chrome — avec à chaque fois une confirmation
-**YES/NO** pour pouvoir skipper.
+pour chaque agence, on **ouvre le LinkedIn entreprise** dans Chrome — avec une
+confirmation **YES/NO** pour pouvoir skipper. **Par défaut**, les URLs des
+profils dans `employees[]` ne sont **pas** proposées ; passe **`--employees`**
+pour enchaîner sur chaque **LinkedIn employé** avec la même logique.
 
 Après chaque ouverture, le script demande :
 
@@ -18,37 +19,52 @@ ton outreach et de pouvoir reprendre là où tu t'étais arrêté.
 > et **enregistrer tes réponses** — toutes les actions LinkedIn (connect,
 > message) restent manuelles.
 
+Le fichier JSON cible se déduit de **`--country`**, **`--city`** (optionnel) et **`--prod`**, comme les scripts `scrape_event_agencies` (fichiers canoniques sous `output/debug/` ou `output/prod/`). L’ancien `--input` n’est plus pris en charge.
+
 ---
 
 ## Exemples yarn (`automation/`)
 
+Le script résout le JSON comme les steps [`scrape_event_agencies`](../scrape_event_agencies/README.md) : fichiers canoniques
+
+`output/<debug|prod>/scrape_event_agencies_<country>_<citySlug>.json`
+
+(sans `--prod` → dossier `output/debug/`).
+
 ```bash
-# Cas standard : on bosse sur le fichier produit par step 3.
-yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json
+# Une ville (fichier unique).
+yarn outreach:linkedin --country=fr --city=paris
 
-# Reprendre à partir de la 10e agence (1-indexed).
-yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --start=10
+# Même chose en prod (output/prod/…).
+yarn outreach:linkedin --country=fr --city=paris --prod
 
-# Ne traiter que les 5 prochaines agences.
-yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --limit=5
+# Toutes les villes du pays pour ce mode : chaque scrape_event_agencies_fr_*.json
+# dans output/prod/, l’un après l’autre (ordre des noms de fichiers).
+yarn outreach:linkedin --country=fr --prod
+
+# Reprendre à partir de la 10e agence (1-indexed) — par fichier quand il y en a plusieurs.
+yarn outreach:linkedin --country=fr --city=paris --start=10
+
+# Ne traiter que les 5 prochaines agences (dans chaque fichier si multi-villes).
+yarn outreach:linkedin --country=fr --city=paris --limit=5
 
 # Re-poser la question pour les rows déjà traitées.
-yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --force
+yarn outreach:linkedin --country=fr --city=paris --force
 
 # Re-poser uniquement pour les rows que j'avais skipped.
-yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --include-skipped
+yarn outreach:linkedin --country=fr --city=paris --include-skipped
 
 # Ouvrir avec mon navigateur par défaut au lieu de Chrome.
-yarn outreach:linkedin --input=./output/...json --use-default-browser
+yarn outreach:linkedin --country=fr --city=paris --use-default-browser
 
-# Ne traiter que les pages entreprise (skipper tous les profils employés).
-yarn outreach:linkedin --input=./output/...json --no-employees
+# Inclure aussi les profils employés (après la page entreprise).
+yarn outreach:linkedin --country=fr --city=paris --employees
 
 # Ne traiter que les profils employés (skipper toutes les pages entreprise).
-yarn outreach:linkedin --input=./output/...json --no-companies
+yarn outreach:linkedin --country=fr --city=paris --no-companies --employees
 
-# Écrire la sortie dans un autre fichier (laisse l'input intouché).
-yarn outreach:linkedin --input=./output/...json --output=./output/...outreach.json
+# Écrire la sortie dans un autre fichier (laisse le JSON source intact) — uniquement avec --city.
+yarn outreach:linkedin --country=fr --city=paris --output=./output/debug/scrape_event_agencies_fr_paris_outreach.json
 ```
 
 ---
@@ -69,7 +85,7 @@ Pour chaque agence :
 3. Si on a ouvert :
    - `Did you CONNECT on LinkedIn? [y/N/q]`
    - `Did you send the FIRST MESSAGE? [y/N/q]`
-4. Puis itération sur `employees[]` :
+4. **Si `--employees`** : itération sur `employees[]` :
    - encart par profil avec `name`, `role_bucket`, `job`, `metadata_description`, `linkedin_url`
    - prompt **`Open EMPLOYEE LinkedIn in browser? [Y/n/s/q]`**
      - `s` : skipper tous les employés restants de cette agence (passe à l'agence suivante)
@@ -138,14 +154,16 @@ Au redémarrage, le script **skippe par défaut** toute row déjà annotée
 
 | Paramètre                  | Description                                                                  |
 |----------------------------|------------------------------------------------------------------------------|
-| `--input=<path>` *(req)*   | JSON d'agences (généralement la sortie de step 3).                          |
-| `--output=<path>`          | Écrit ailleurs au lieu de mettre à jour `--input` in-place.                 |
-| `--start=<n>`              | Démarre à l'agence n° **n** (1-indexed).                                    |
-| `--limit=<n>`              | Plafonne à **n** agences pour ce run.                                       |
+| `--country=<code>` *(req)* | Code pays (ex. `fr`), comme les scripts scrape.                              |
+| `--city=<name>`            | *(optionnel)* Ville ; slugifiée pour cibler `scrape_event_agencies_<country>_<slug>.json`. Sans ce paramètre, **tous** les JSON `scrape_event_agencies_<country>_*.json` du dossier mode sont enchaînés (tri par nom de fichier). |
+| `--prod`                   | *(optionnel)* Lit/écrit sous `output/prod/` ; défaut : `output/debug/`.       |
+| `--output=<path>`          | Écrit ailleurs au lieu du fichier canonique **uniquement si** `--city` est défini (un seul fichier cible). Interdit quand plusieurs villes sont traitées. |
+| `--start=<n>`              | Démarre à l'agence n° **n** (1-indexed). Si plusieurs fichiers (sans `--city`), s'applique **à chaque** fichier. |
+| `--limit=<n>`              | Plafonne à **n** agences par fichier traité.                                  |
 | `--force`                  | Re-pose les questions même pour les rows déjà `opened` ou `skipped`.        |
 | `--include-skipped`        | Re-pose les questions uniquement pour les rows déjà `skipped`.              |
-| `--no-employees`           | Ne traite QUE la page LinkedIn entreprise.                                  |
-| `--no-companies`           | Ne traite QUE les profils employés.                                         |
+| `--employees`              | *(optionnel)* Après la page entreprise, proposer aussi chaque `employees[].linkedin_url` (défaut : **non**, entreprise seule). |
+| `--no-companies`           | Ne traite **pas** la page LinkedIn entreprise ; n’a de sens qu’avec **`--employees`**. |
 | `--use-default-browser`    | Utilise le navigateur par défaut au lieu de Google Chrome.                  |
 
 **Aucun token requis** (pas d'API externe).

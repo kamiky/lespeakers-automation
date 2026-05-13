@@ -2,24 +2,30 @@
  * open_agencies_linkedin.ts
  *
  * EXAMPLES (from `automation/`):
- *   yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json
- *   yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --start=10
- *   yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --limit=5
- *   yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --force
- *   yarn outreach:linkedin --input=./output/debug/scrape_event_agencies_fr_paris.json --use-default-browser
+ *   yarn outreach:linkedin --country=fr
+ *   yarn outreach:linkedin --country=fr --prod
+ *   yarn outreach:linkedin --country=fr --city=paris
+ *   yarn outreach:linkedin --country=fr --city=paris --prod --start=10
+ *   yarn outreach:linkedin --country=fr --city=paris --limit=5 --force
+ *   yarn outreach:linkedin --country=fr --city=paris --employees
+ *   yarn outreach:linkedin --country=fr --prod --use-default-browser
+ *
+ * Resolves JSON the same way as scrape_event_agencies steps: canonical files
+ *   output/<debug|prod>/scrape_event_agencies_<country>_<citySlug>.json
+ * With `--city` omitted, every matching per-city JSON for that country in the mode
+ * folder is processed in sorted filename order.
  *
  * Manual LinkedIn outreach loop (no API). For each agency in the input JSON:
  *   1. Show the agency name + company LinkedIn URL, prompt YES/NO to open it
  *      in the browser. If yes, the URL is launched, then the user is asked:
  *        - did you connect on LinkedIn? (Y/N)
  *        - did you send the first message? (Y/N)
- *   2. Iterate over `employees[]`. For each profile, show name + title +
- *      description + URL, prompt YES/NO to open it, and ask the same two
- *      follow-up questions after opening.
+ *   2. By default, employee profile URLs are skipped. Pass `--employees` to also
+ *      iterate over `employees[]` with the same prompts and follow-up questions.
  *
  * The script writes outreach state back into the SAME JSON file after every
  * answer (atomic write), so it is fully resumable: re-running with the same
- * `--input` skips already-handled rows by default.
+ * country/city/prod skips already-handled rows by default.
  *
  * Fields written (per agency / per employee):
  *   - linkedin_outreach_status : 'opened' | 'skipped'
@@ -41,11 +47,16 @@ import {
   getStringArg,
   parseCliArgs,
 } from '../../src/utils/cli.js';
-import { loadAgenciesFromJson, writeJson } from '../../src/utils/output.js';
+import {
+  OUTPUT_DIR,
+  getModeOutputDir,
+  loadAgenciesFromJson,
+  slugifyCityForFilename,
+  writeJson,
+  type Mode,
+} from '../../src/utils/output.js';
 
 interface RunOptions {
-  inputPath: string;
-  outputPath: string;
   force: boolean;
   includeSkipped: boolean;
   start: number;
@@ -53,6 +64,12 @@ interface RunOptions {
   useDefaultBrowser: boolean;
   skipEmployees: boolean;
   skipCompanies: boolean;
+}
+
+/** One resolved JSON to read (and usually write back in-place). */
+interface OutreachTarget {
+  inputPath: string;
+  outputPath: string;
 }
 
 interface PromptStop {
@@ -111,6 +128,30 @@ function openUrl(url: string, useDefault: boolean): void {
     console.warn(
       `[warn] Failed to open URL "${url}": ${err instanceof Error ? err.message : err}`,
     );
+  }
+}
+
+/**
+ * LinkedIn company pages open on the People tab (`…/people`) for faster outreach context.
+ * Idempotent if `/people` is already present (any case). Preserves query/hash when possible.
+ */
+function linkedinCompanyPeopleTabUrl(companyUrl: string): string {
+  const raw = companyUrl.trim();
+  if (!raw) return raw;
+  try {
+    const u = new URL(raw);
+    let path = u.pathname.replace(/\/+$/, '');
+    if (/\/people$/i.test(path)) {
+      return u.toString();
+    }
+    u.pathname = `${path}/people`;
+    return u.toString();
+  } catch {
+    const main = raw.match(/^[^?#]*/)?.[0] ?? raw;
+    const rest = raw.slice(main.length);
+    const base = main.replace(/\/+$/, '');
+    if (/\/people$/i.test(base)) return raw;
+    return `${base}/people${rest}`;
   }
 }
 
@@ -178,7 +219,11 @@ function printAgencyHeader(agency: Agency, idx: number, total: number): void {
   if (agency.contact_emails && agency.contact_emails.length > 0) {
     console.log(`      Emails    : ${agency.contact_emails.join(', ')}`);
   }
-  console.log(`      LinkedIn  : ${agency.linkedin_company_url ?? '— (none)'}`);
+  if (agency.linkedin_company_url) {
+    console.log(`      LinkedIn  : ${linkedinCompanyPeopleTabUrl(agency.linkedin_company_url)}`);
+  } else {
+    console.log(`      LinkedIn  : — (none)`);
+  }
   if (agency.linkedin_outreach_status) {
     const flags = [
       `status=${agency.linkedin_outreach_status}`,
@@ -313,15 +358,16 @@ async function processAgency(params: {
   total: number;
   agencies: Agency[];
   opts: RunOptions;
+  outputPath: string;
 }): Promise<AgencyOutcome> {
-  const { rl, agency, idx, total, agencies, opts } = params;
+  const { rl, agency, idx, total, agencies, opts, outputPath } = params;
   let changed = false;
 
   printAgencyHeader(agency, idx, total);
 
   // --- Company LinkedIn ----------------------------------------------------
   if (opts.skipCompanies) {
-    console.log('  [company] --skip-companies set, skipping company prompt.');
+    console.log('  [company] --no-companies set, skipping company prompt.');
   } else if (!agency.linkedin_company_url) {
     console.log('  [company] no linkedin_company_url, nothing to open.');
   } else if (!shouldPrompt(agency.linkedin_outreach_status, opts)) {
@@ -329,14 +375,15 @@ async function processAgency(params: {
       `  [company] already ${agency.linkedin_outreach_status} (use --force or --include-skipped to re-ask).`,
     );
   } else {
-    const ans = await askForUrl(rl, agency.linkedin_company_url, 'COMPANY LinkedIn', {
+    const companyOpenUrl = linkedinCompanyPeopleTabUrl(agency.linkedin_company_url);
+    const ans = await askForUrl(rl, companyOpenUrl, 'COMPANY LinkedIn', {
       useDefaultBrowser: opts.useDefaultBrowser,
       allowSkipRest: false,
     });
     if (isQuit(ans)) return { quit: true, changed };
     if (ans !== null) {
       applyAnswersToAgency(agency, ans);
-      persist(agencies, opts.outputPath);
+      persist(agencies, outputPath);
       changed = true;
     }
   }
@@ -374,41 +421,109 @@ async function processAgency(params: {
       break;
     }
     applyAnswersToEmployee(employee, ans);
-    persist(agencies, opts.outputPath);
+    persist(agencies, outputPath);
     changed = true;
   }
 
   return { quit: false, changed };
 }
 
-function parseOptions(): RunOptions {
-  const args = parseCliArgs(process.argv);
-  const inputArg = getStringArg(args, 'input');
-  if (!inputArg) {
-    throw new Error('Missing required --input=<path-to-agencies.json>');
-  }
-  const inputPath = path.resolve(process.cwd(), inputArg);
-  if (!fs.existsSync(inputPath)) {
-    throw new Error(`Input file not found: ${inputPath}`);
-  }
-  const outputArg = getStringArg(args, 'output');
-  const outputPath = outputArg ? path.resolve(process.cwd(), outputArg) : inputPath;
+const CITY_SLUG_IN_FILENAME = /^[a-z0-9_-]+$/;
 
+/**
+ * Per-city canonical pipeline JSONs for a country under `output/<mode>/`
+ * (same naming as scrape_event_agencies steps 0–3), sorted by basename.
+ */
+function listCanonicalCityJsonPaths(modeOutputDir: string, country: string): string[] {
+  if (!fs.existsSync(modeOutputDir)) return [];
+  const prefix = `scrape_event_agencies_${country}_`;
+  const paths: string[] = [];
+  for (const name of fs.readdirSync(modeOutputDir)) {
+    if (!name.endsWith('.json')) continue;
+    if (name.startsWith('scrape_event_agencies_with_')) continue;
+    if (!name.startsWith(prefix)) continue;
+    const rest = name.slice(prefix.length, -'.json'.length);
+    if (!rest || !CITY_SLUG_IN_FILENAME.test(rest)) continue;
+    paths.push(path.join(modeOutputDir, name));
+  }
+  paths.sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
+  return paths;
+}
+
+function parseRunFlags(argv: string[]): RunOptions {
+  const args = parseCliArgs(argv);
   const startRaw = getIntArg(args, 'start');
   const start = typeof startRaw === 'number' ? Math.max(1, startRaw) - 1 : 0;
   const limit = getIntArg(args, 'limit');
 
   return {
-    inputPath,
-    outputPath,
     force: getBoolArg(args, 'force'),
     includeSkipped: getBoolArg(args, 'include-skipped'),
     start,
     limit,
     useDefaultBrowser: getBoolArg(args, 'use-default-browser'),
-    skipEmployees: getBoolArg(args, 'no-employees'),
+    skipEmployees: !getBoolArg(args, 'employees'),
     skipCompanies: getBoolArg(args, 'no-companies'),
   };
+}
+
+function resolveOutreachTargets(argv: string[]): {
+  targets: OutreachTarget[];
+  country: string;
+  mode: Mode;
+} {
+  const args = parseCliArgs(argv);
+  if (getStringArg(args, 'input')) {
+    throw new Error(
+      '`--input` is no longer supported. Use --country=<code> [--city=<name>] [--prod], e.g. --country=fr --city=paris or --country=fr --prod',
+    );
+  }
+
+  const country = getStringArg(args, 'country')?.toLowerCase();
+  if (!country) {
+    throw new Error(
+      'Missing required --country=<code>. Example: --country=fr --city=paris (or omit --city to process every per-city JSON for that country).',
+    );
+  }
+
+  const mode: Mode = getBoolArg(args, 'prod') ? 'prod' : 'debug';
+  const modeOutputDir = getModeOutputDir(OUTPUT_DIR, mode);
+  const cityArg = getStringArg(args, 'city');
+  const outputArg = getStringArg(args, 'output');
+
+  let inputPaths: string[];
+  if (cityArg) {
+    const slug = slugifyCityForFilename(cityArg.trim());
+    const single = path.join(modeOutputDir, `scrape_event_agencies_${country}_${slug}.json`);
+    if (!fs.existsSync(single)) {
+      throw new Error(
+        `Expected JSON not found: ${single}\n` +
+          `Check --country / --city / --prod, or create the file via the scrape_event_agencies pipeline.`,
+      );
+    }
+    inputPaths = [single];
+  } else {
+    inputPaths = listCanonicalCityJsonPaths(modeOutputDir, country);
+    if (inputPaths.length === 0) {
+      throw new Error(
+        `No per-city JSON matching scrape_event_agencies_${country}_*.json under ${modeOutputDir}.`,
+      );
+    }
+  }
+
+  if (outputArg && inputPaths.length > 1) {
+    throw new Error(
+      '`--output` is only allowed with `--city=<name>` (single input file). For multi-city runs, updates are written in-place to each JSON.',
+    );
+  }
+
+  const resolvedOutput = outputArg ? path.resolve(process.cwd(), outputArg) : undefined;
+  const targets: OutreachTarget[] = inputPaths.map((inputPath) => ({
+    inputPath,
+    outputPath: resolvedOutput ?? inputPath,
+  }));
+
+  return { targets, country, mode };
 }
 
 function summarize(agencies: Agency[]): void {
@@ -445,21 +560,20 @@ function summarize(agencies: Agency[]): void {
   console.log(SEPARATOR);
 }
 
-async function main(): Promise<void> {
-  const opts = parseOptions();
-  console.log(`[input]  ${opts.inputPath}`);
-  if (opts.outputPath !== opts.inputPath) {
-    console.log(`[output] ${opts.outputPath}`);
+async function runOutreachOnJson(
+  rl: readline.Interface,
+  opts: RunOptions,
+  target: OutreachTarget,
+): Promise<'quit' | 'done'> {
+  const { inputPath, outputPath } = target;
+  console.log(`[input]  ${inputPath}`);
+  if (outputPath !== inputPath) {
+    console.log(`[output] ${outputPath}`);
   } else {
-    console.log('[output] (in-place — same file as --input)');
+    console.log('[output] (in-place — same file as input)');
   }
-  if (opts.force) console.log('[opt]    --force : re-asking already-processed rows');
-  if (opts.includeSkipped) console.log('[opt]    --include-skipped : re-asking previously skipped rows');
-  if (opts.useDefaultBrowser) console.log('[opt]    --use-default-browser : opening with system default browser');
-  if (opts.skipCompanies) console.log('[opt]    --no-companies : skipping company prompts');
-  if (opts.skipEmployees) console.log('[opt]    --no-employees : skipping employee prompts');
 
-  const agencies = loadAgenciesFromJson(opts.inputPath);
+  const agencies = loadAgenciesFromJson(inputPath);
   console.log(`[load]   ${agencies.length} agency(ies) loaded`);
 
   const startIdx = Math.min(opts.start, agencies.length);
@@ -471,37 +585,75 @@ async function main(): Promise<void> {
     console.log(`[range]  processing agencies ${startIdx + 1}..${endIdx}`);
   }
 
-  const rl = readline.createInterface({ input, output });
-
   let quit = false;
-  try {
-    for (let i = startIdx; i < endIdx; i++) {
-      const outcome = await processAgency({
-        rl,
-        agency: agencies[i],
-        idx: i,
-        total: agencies.length,
-        agencies,
-        opts,
-      });
-      if (outcome.quit) {
-        quit = true;
-        break;
-      }
+  for (let i = startIdx; i < endIdx; i++) {
+    const outcome = await processAgency({
+      rl,
+      agency: agencies[i],
+      idx: i,
+      total: agencies.length,
+      agencies,
+      opts,
+      outputPath,
+    });
+    if (outcome.quit) {
+      quit = true;
+      break;
     }
-  } finally {
-    rl.close();
   }
 
   if (quit) {
     console.log('\n[quit] User asked to quit. Progress already persisted.');
+    return 'quit';
+  }
+  console.log('\n[done] Reached end of agency list for this file.');
+  const finalAgencies = loadAgenciesFromJson(outputPath);
+  summarize(finalAgencies);
+  return 'done';
+}
+
+async function main(): Promise<void> {
+  const { targets, country, mode } = resolveOutreachTargets(process.argv);
+  const opts = parseRunFlags(process.argv);
+
+  console.log(`[country] ${country}`);
+  console.log(`[mode]    ${mode}  (${getModeOutputDir(OUTPUT_DIR, mode)})`);
+  if (targets.length > 1) {
+    console.log(`[files]   ${targets.length} JSON file(s) (sorted):`);
+    for (const t of targets) console.log(`          ${t.inputPath}`);
+  }
+  if (opts.force) console.log('[opt]    --force : re-asking already-processed rows');
+  if (opts.includeSkipped) console.log('[opt]    --include-skipped : re-asking previously skipped rows');
+  if (opts.useDefaultBrowser) console.log('[opt]    --use-default-browser : opening with system default browser');
+  if (opts.skipCompanies) console.log('[opt]    --no-companies : skipping company prompts');
+  if (opts.skipEmployees) {
+    console.log('[scope]  company LinkedIn only (default); pass --employees to include employee profiles');
   } else {
-    console.log('\n[done] Reached end of agency list.');
+    console.log('[scope]  company + employee LinkedIn URLs (--employees)');
   }
 
-  // Reload from disk so the summary reflects the just-written state (defensive).
-  const finalAgencies = loadAgenciesFromJson(opts.outputPath);
-  summarize(finalAgencies);
+  if (opts.skipCompanies && opts.skipEmployees) {
+    console.warn(
+      '[warn] --no-companies with default scope (no --employees): no LinkedIn URLs will be opened.',
+    );
+  }
+
+  const rl = readline.createInterface({ input, output });
+
+  try {
+    for (let fi = 0; fi < targets.length; fi++) {
+      const t = targets[fi];
+      if (targets.length > 1) {
+        console.log('\n' + '='.repeat(72));
+        console.log(`[file ${fi + 1}/${targets.length}] ${path.basename(t.inputPath)}`);
+        console.log('='.repeat(72));
+      }
+      const status = await runOutreachOnJson(rl, opts, t);
+      if (status === 'quit') break;
+    }
+  } finally {
+    rl.close();
+  }
 }
 
 main().catch((err) => {
